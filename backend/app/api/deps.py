@@ -54,3 +54,30 @@ def get_current_teacher(
         raise CREDENTIALS_EXCEPTION
 
     return teacher
+
+
+def get_current_actor(
+    token: str | None = Depends(student_oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> tuple[str, int]:
+    """Resolve a bearer token belonging to either a student or a teacher.
+
+    Used by endpoints (such as GET /attendance/active-session) that return
+    the same data to both roles. Returns a (role, user_id) tuple instead of
+    a model instance since the caller may be either type.
+    """
+    if token is None:
+        raise CREDENTIALS_EXCEPTION
+
+    payload = decode_access_token(token)
+    if payload is None or payload.get("role") not in ("student", "teacher"):
+        raise CREDENTIALS_EXCEPTION
+
+    role = payload["role"]
+    user_id = int(payload["sub"])
+
+    exists = db.get(Student, user_id) if role == "student" else db.get(Teacher, user_id)
+    if exists is None:
+        raise CREDENTIALS_EXCEPTION
+
+    return role, user_id

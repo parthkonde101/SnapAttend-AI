@@ -1,26 +1,31 @@
 "use client";
 
-import { useState } from "react";
-import { ClipboardList, Loader2, PlayCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useRef } from "react";
+import { ClipboardList, History, Loader2, PlayCircle, RefreshCw } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import { SessionHistoryTable } from "@/components/attendance/session-history-table";
+import { useSessionHistory } from "@/hooks/use-attendance";
 import { useCurrentUser } from "@/hooks/use-auth";
 import type { Teacher } from "@/lib/types";
 
 export default function TeacherDashboardPage() {
+  const router = useRouter();
   const { user, isLoading, error } = useCurrentUser<Teacher>("teacher", "/api/v1/teachers/me");
-  const [notice, setNotice] = useState<string | null>(null);
+  const { sessions, isLoading: isHistoryLoading, error: historyError, refetch: refetchHistory } =
+    useSessionHistory();
+  const historyRef = useRef<HTMLDivElement>(null);
 
   function handleStartAttendance() {
-    // Session creation / verification flow is not wired up yet.
-    setNotice("Starting an attendance session is coming soon.");
+    router.push("/teacher/session");
   }
 
   function handleViewAttendance() {
-    setNotice("Attendance records will be viewable here soon.");
+    historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   if (isLoading) {
@@ -80,9 +85,29 @@ export default function TeacherDashboardPage() {
           </Card>
         </div>
 
-        {notice && (
-          <p className="text-center text-sm text-muted-foreground sm:text-left">{notice}</p>
-        )}
+        <Card ref={historyRef}>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <History className="h-5 w-5 text-muted-foreground" />
+                Session History
+              </CardTitle>
+              <CardDescription>Every attendance session you&apos;ve started.</CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => refetchHistory()}
+              aria-label="Refresh session history"
+              title="Refresh"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <SessionHistoryTable sessions={sessions} isLoading={isHistoryLoading} error={historyError} />
+          </CardContent>
+        </Card>
       </div>
     </DashboardShell>
   );

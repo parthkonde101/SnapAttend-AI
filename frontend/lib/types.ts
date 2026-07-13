@@ -27,3 +27,32 @@ export interface AttendanceSession {
   is_active: boolean;
   created_at: string;
 }
+
+// --- Attendance Session Engine ---------------------------------------------
+
+export interface ActiveSessionInfo {
+  session_id: number;
+  session_code: string;
+  created_at: string;
+  expires_at: string;
+  duration_seconds: number;
+  remaining_seconds: number;
+  present_count: number;
+}
+
+export interface ActiveSessionResponse {
+  active: boolean;
+  session: ActiveSessionInfo | null;
+}
+
+export type SessionStatus = "active" | "ended";
+
+export interface SessionHistoryItem {
+  session_id: number;
+  session_code: string;
+  created_at: string;
+  expires_at: string;
+  duration_seconds: number;
+  status: SessionStatus;
+  present_count: number;
+}

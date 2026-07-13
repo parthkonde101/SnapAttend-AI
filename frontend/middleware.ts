@@ -11,8 +11,8 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get("sa_token")?.value;
   const role = request.cookies.get("sa_role")?.value;
 
-  const isStudentRoute = pathname.startsWith("/student/dashboard");
-  const isTeacherRoute = pathname.startsWith("/teacher/dashboard");
+  const isStudentRoute = pathname.startsWith("/student/dashboard") || pathname.startsWith("/student/attendance");
+  const isTeacherRoute = pathname.startsWith("/teacher/dashboard") || pathname.startsWith("/teacher/session");
 
   if (isStudentRoute && (!token || role !== "student")) {
     return NextResponse.redirect(new URL("/student/login", request.url));
@@ -26,5 +26,10 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/student/dashboard/:path*", "/teacher/dashboard/:path*"],
+  matcher: [
+    "/student/dashboard/:path*",
+    "/student/attendance/:path*",
+    "/teacher/dashboard/:path*",
+    "/teacher/session/:path*",
+  ],
 };

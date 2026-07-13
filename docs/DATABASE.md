@@ -20,11 +20,14 @@ PostgreSQL, managed with SQLAlchemy models and Alembic migrations.
 
 **attendance_sessions**
 - `id` (PK)
-- `session_code` (unique, indexed)
+- `session_code` (indexed, not globally unique — only guaranteed unique while active)
 - `teacher_id` (FK -> teachers.id, cascade delete)
+- `duration_seconds` (fixed at 90 by the session engine)
 - `expires_at`
 - `is_active`
 - `created_at`
+- Partial unique index `uq_attendance_sessions_single_active` on `is_active` (`WHERE is_active = true`) —
+  guarantees at most one active session system-wide
 
 **attendance**
 - `id` (PK)
