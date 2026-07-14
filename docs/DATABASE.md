@@ -10,6 +10,16 @@ PostgreSQL, managed with SQLAlchemy models and Alembic migrations.
 - `full_name`
 - `password_hash`
 - `created_at`
+- `verified_prn` (nullable) — PRN as extracted/confirmed during ID-verified registration
+- `verified_name` (nullable) — student name as extracted/confirmed during ID-verified registration
+- `id_image_path` (nullable) — local path to the captured ID photo (development only)
+- `verified_at` (nullable) — timestamp the registration snapshot was saved
+
+The `verified_*` columns are an additive audit snapshot written once by
+`POST /api/v1/registration/verify` (see `docs/API.md`) — they are intentionally kept separate
+from the live `prn`/`full_name` fields rather than replacing them, so the account's primary
+identity fields and the AI-verified snapshot can evolve independently later (e.g. if profile
+editing is added). Added in migration `0003_registration_verification`.
 
 **teachers**
 - `id` (PK)

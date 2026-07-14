@@ -93,6 +93,76 @@ processed, verified, or linked to a session yet. Response:
 { "success": true, "imageId": "3f9a1c2b7e4d4f0c9a8b1d2e3f4a5b6c" }
 ```
 
+## Registration — Verified Student Registration
+
+| Method | Path                          | Auth            | Description                                          |
+|--------|-------------------------------|-----------------|--------------------------------------------------------|
+| POST   | `/api/v1/registration/analyze` | No             | Analyze a captured ID-card photo; extract PRN + name    |
+| POST   | `/api/v1/registration/verify`  | Student token  | Persist the reviewed/confirmed PRN + name snapshot      |
+
+`POST /registration/analyze` is a multipart form upload (`file` field, JPEG/PNG/WEBP up to
+10 MB), separate from and unrelated to `attendance/upload-photo`. It runs the image through
+the registration intelligence pipeline (`backend/app/ai/`): quality validation, preprocessing,
+ID-card detection, barcode decoding (tried before OCR), and region-of-interest,
+digit-priority OCR for the PRN. If the image fails the quality gate (too small, blurry, too
+dark/bright, blown out by glare, or the card isn't fully visible in frame) it is **not saved**,
+and `quality_passed` is `false` with human-readable messages in `quality_messages`. Only PRN
+and student name are ever extracted — no other fields, and no attendance/session logic is
+involved.
+
+Response shape:
+
+```json
+{
+  "quality_passed": true,
+  "quality_messages": [],
+  "id_detected": true,
+  "barcode": null,
+  "prn": "2021BTCS001",
+  "student_name": "Amit Kumar Verma",
+  "warnings": [],
+  "raw_text": ["..."],
+  "image_reference": "3f9a1c2b7e4d4f0c9a8b1d2e3f4a5b6c",
+  "barcode_type": null,
+  "barcode_status": "not_found",
+  "barcode_failure_reason": "No barcode found in the frame."
+}
+```
+
+`prn` and `student_name` may be `null` if extraction couldn't confidently find them — the
+frontend always lets the student review and edit both fields before confirming.
+`image_reference` is an opaque id for the already-saved photo; pass it back unchanged to
+`/registration/verify`.
+
+`barcode_type`, `barcode_status` (one of `not_attempted` / `decoded` / `not_found` / `failed`),
+and `barcode_failure_reason` are development-facing only — they exist so barcode decoding can be
+observed and tuned independently of OCR, and are not rendered anywhere in the registration UI.
+`barcode` itself remains the single field the rest of the app cares about: whatever the barcode
+decoded to (if anything), regardless of whether it ended up being used as the PRN.
+
+`POST /registration/verify` is called after account creation (`/auth/student/register`,
+unchanged) using the student's fresh token. It accepts the (possibly student-edited) PRN and
+name plus the same `image_reference`, and stores them as an immutable verification snapshot
+separate from the student's live `prn`/`full_name` fields. This call is best-effort from the
+frontend's perspective — if it fails, the account still exists and the student still reaches
+their dashboard.
+
+```json
+// request
+{ "prn": "2021BTCS001", "student_name": "Amit Kumar Verma", "image_reference": "3f9a1c2b7e4d4f0c9a8b1d2e3f4a5b6c" }
+
+// response
+{
+  "verified_prn": "2021BTCS001",
+  "verified_name": "Amit Kumar Verma",
+  "id_image_path": "uploads/registration-photos/3f9a1c2b7e4d4f0c9a8b1d2e3f4a5b6c.jpg",
+  "verified_at": "2026-07-14T10:05:00Z"
+}
+```
+
+This pipeline is a registration-time foundation only — it does not implement attendance
+verification, session-code recognition, face recognition, or automatic attendance in any form.
+
 ## Errors
 
 All error responses share a consistent shape:

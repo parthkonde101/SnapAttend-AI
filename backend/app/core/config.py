@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # verification is implemented.
     UPLOAD_DIR: str = "uploads/attendance-photos"
 
+    # Where registration ID-card captures are stored once they pass the
+    # image quality gate (see app/ai/pipeline.py). Development only.
+    REGISTRATION_UPLOAD_DIR: str = "uploads/registration-photos"
+
     @property
     def cors_origins(self) -> List[str]:
         return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",") if origin.strip()]
