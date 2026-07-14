@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # CORS
     BACKEND_CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # File storage. Attendance photos are stored on local disk for now
+    # (no processing) — this will move to object storage once OCR / AI
+    # verification is implemented.
+    UPLOAD_DIR: str = "uploads/attendance-photos"
+
     @property
     def cors_origins(self) -> List[str]:
         return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",") if origin.strip()]

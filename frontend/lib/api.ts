@@ -1,6 +1,5 @@
 import { getToken } from "@/lib/auth";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { API_BASE_URL } from "@/lib/config";
 
 export class ApiError extends Error {
   status: number;
@@ -16,6 +15,21 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   /** Attach the stored bearer token, if present. Defaults to true. */
   authenticated?: boolean;
+}
+
+/** Parse a fetch Response into typed JSON, or throw a normalized ApiError. */
+async function parseResponse<T>(response: Response): Promise<T> {
+  const isJson = response.headers.get("content-type")?.includes("application/json");
+  const payload = isJson ? await response.json().catch(() => null) : null;
+
+  if (!response.ok) {
+    const message =
+      (payload && typeof payload === "object" && "detail" in payload && String(payload.detail)) ||
+      `Request failed with status ${response.status}`;
+    throw new ApiError(message, response.status);
+  }
+
+  return payload as T;
 }
 
 /**
@@ -42,15 +56,30 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  const isJson = response.headers.get("content-type")?.includes("application/json");
-  const payload = isJson ? await response.json().catch(() => null) : null;
+  return parseResponse<T>(response);
+}
 
-  if (!response.ok) {
-    const message =
-      (payload && typeof payload === "object" && "detail" in payload && String(payload.detail)) ||
-      `Request failed with status ${response.status}`;
-    throw new ApiError(message, response.status);
+/**
+ * Uploads a single file as multipart/form-data (e.g. an attendance photo).
+ * Kept separate from `apiRequest` because the browser must set its own
+ * `Content-Type` (with boundary) for FormData — sharing `parseResponse`
+ * keeps error handling identical between both.
+ */
+export async function uploadFile<T>(path: string, file: Blob, filename: string): Promise<T> {
+  const formData = new FormData();
+  formData.append("file", file, filename);
+
+  const headers = new Headers();
+  const token = getToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
-  return payload as T;
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  return parseResponse<T>(response);
 }

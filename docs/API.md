@@ -79,6 +79,20 @@ management. The student check-in flow (photo capture, OCR, and AI-based verifica
 intentionally left unimplemented. The `/mark` route exists so the contract is stable once
 that work begins.
 
+## Attendance — Photo Capture
+
+| Method | Path                                 | Auth            | Description                              |
+|--------|----------------------------------------|-----------------|--------------------------------------------|
+| POST   | `/api/v1/attendance/upload-photo`      | Student token   | Upload a captured ID-card photo             |
+
+Multipart form upload (`file` field). Accepts JPEG, PNG, or WEBP up to 10 MB. The image is
+saved as-is to `UPLOAD_DIR` (`backend/uploads/attendance-photos` by default) — nothing is
+processed, verified, or linked to a session yet. Response:
+
+```json
+{ "success": true, "imageId": "3f9a1c2b7e4d4f0c9a8b1d2e3f4a5b6c" }
+```
+
 ## Errors
 
 All error responses share a consistent shape:

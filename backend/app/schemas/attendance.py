@@ -69,3 +69,14 @@ class SessionHistoryItem(BaseModel):
     duration_seconds: int
     status: Literal["active", "ended"]
     present_count: int = Field(..., ge=0)
+
+
+# --- Smart Camera Capture -------------------------------------------------
+# Response for POST /attendance/upload-photo. Field names intentionally
+# match the exact contract requested for this milestone (camelCase
+# `imageId`) rather than the snake_case used elsewhere in this file.
+
+
+class PhotoUploadResponse(BaseModel):
+    success: bool
+    imageId: str

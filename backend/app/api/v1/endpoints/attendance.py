@@ -8,22 +8,27 @@ represented by a stub endpoint that returns HTTP 501.
 """
 import secrets
 import string
+import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_actor, get_current_student, get_current_teacher
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.attendance import Attendance
 from app.models.attendance_session import DEFAULT_SESSION_DURATION_SECONDS, AttendanceSession
+from app.models.student import Student
 from app.models.teacher import Teacher
 from app.schemas.attendance import (
     ActiveSessionInfo,
     ActiveSessionResponse,
     AttendanceSessionCreate,
     AttendanceSessionRead,
+    PhotoUploadResponse,
     SessionHistoryItem,
 )
 
@@ -270,3 +275,54 @@ def mark_attendance(current_student=Depends(get_current_student)) -> None:
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
         detail="Attendance marking is not implemented yet.",
     )
+
+
+# --- Smart Camera Capture -------------------------------------------------
+# Powers the student camera flow: capture an ID-card photo and store it.
+# This is intentionally a dumb file drop — no OCR, no AI verification, and
+# no link to a session or attendance record yet. Those land in a later
+# milestone on top of this endpoint.
+
+_ALLOWED_UPLOAD_CONTENT_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@router.post("/upload-photo", response_model=PhotoUploadResponse, status_code=status.HTTP_201_CREATED)
+async def upload_attendance_photo(
+    file: UploadFile = File(...),
+    current_student: Student = Depends(get_current_student),
+) -> PhotoUploadResponse:
+    """Accept an attendance ID-card photo and store it on local disk.
+
+    Does not process, verify, or link the photo to a session — it simply
+    persists the file and hands back an id so a future milestone can pick
+    it up for OCR / AI verification.
+    """
+    content_type = (file.content_type or "").lower()
+    extension = _ALLOWED_UPLOAD_CONTENT_TYPES.get(content_type)
+    if extension is None:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported image type. Please upload a JPEG, PNG, or WEBP photo.",
+        )
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
+    if len(contents) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Photo is too large. Maximum size is 10 MB.",
+        )
+
+    image_id = uuid.uuid4().hex
+    upload_dir = Path(settings.UPLOAD_DIR)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    (upload_dir / f"{image_id}{extension}").write_bytes(contents)
+
+    return PhotoUploadResponse(success=True, imageId=image_id)

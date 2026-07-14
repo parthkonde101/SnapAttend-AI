@@ -56,3 +56,10 @@ export interface SessionHistoryItem {
   status: SessionStatus;
   present_count: number;
 }
+
+// --- Smart Camera Capture ---------------------------------------------------
+
+export interface PhotoUploadResponse {
+  success: boolean;
+  imageId: string;
+}
