@@ -13,9 +13,9 @@ interface AuthShellProps {
 /** Shared centered-card layout used by every login/register page. */
 export function AuthShell({ title, description, children, footer }: AuthShellProps) {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-dvh flex-col">
       <Navbar />
-      <main className="flex flex-1 items-center justify-center px-4 py-12">
+      <main className="flex flex-1 items-center justify-center px-4 py-6 sm:py-12">
         <Card className="w-full max-w-md animate-in">
           <CardHeader className="space-y-1 text-center">
             <CardTitle>{title}</CardTitle>

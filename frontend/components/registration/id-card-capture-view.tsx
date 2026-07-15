@@ -37,10 +37,10 @@ export function IdCardCaptureView({
   const isReady = status === "ready" && !isAnalyzing;
 
   return (
-    <div className="dark relative min-h-screen w-full overflow-hidden bg-black text-white">
+    <div className="dark relative h-dvh w-full overflow-hidden bg-black text-white">
       <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />
 
-      <div className="absolute inset-x-0 top-0 z-20 flex items-center p-4">
+      <div className="absolute inset-x-0 top-0 z-20 flex items-center p-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}>
         <Button
           variant="ghost"
           size="icon"
@@ -77,7 +77,10 @@ export function IdCardCaptureView({
             </div>
           </div>
 
-          <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-10">
+          <div
+            className="absolute inset-x-0 bottom-0 z-20 flex justify-center"
+            style={{ paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))" }}
+          >
             <button
               type="button"
               onClick={onCapture}

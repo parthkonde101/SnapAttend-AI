@@ -20,7 +20,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    PROJECT_NAME: str = "SnapAttend AI"
+    PROJECT_NAME: str = "SnapAttend"
     API_V1_PREFIX: str = "/api/v1"
     ENVIRONMENT: str = "development"
 

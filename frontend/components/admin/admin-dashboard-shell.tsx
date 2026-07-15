@@ -58,14 +58,14 @@ export function AdminDashboardShell({ children }: AdminDashboardShellProps) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex h-16 items-center justify-between px-4 sm:px-6">
+        <div className="flex h-14 items-center justify-between px-4 sm:h-16 sm:px-6">
           <div className="flex items-center gap-2 font-semibold tracking-tight">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <Camera className="h-4 w-4" />
             </span>
-            <span>SnapAttend AI</span>
+            <span>SnapAttend</span>
             <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
               Admin
             </span>
@@ -77,6 +77,47 @@ export function AdminDashboardShell({ children }: AdminDashboardShellProps) {
             </Button>
           </div>
         </div>
+
+        {/* Milestone 7B: the sidebar below is hidden under the sm
+            breakpoint, which previously left phones with zero navigation
+            into Students/Teachers/Sessions/Settings. This horizontally
+            scrollable pill row is the mobile-only substitute — no new
+            navigation logic, just a second rendering of the same
+            NAV_ITEMS. */}
+        <nav className="flex gap-1.5 overflow-x-auto border-t border-border/60 px-3 py-2 sm:hidden">
+          {NAV_ITEMS.map((item) => {
+            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const Icon = item.icon;
+
+            if (item.comingSoon) {
+              return (
+                <span
+                  key={item.href}
+                  className="flex shrink-0 cursor-not-allowed items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-muted-foreground/50"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {item.label}
+                </span>
+              );
+            }
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
       </header>
 
       <div className="flex flex-1">

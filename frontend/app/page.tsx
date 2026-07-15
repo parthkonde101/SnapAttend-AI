@@ -25,11 +25,11 @@ const features = [
 
 export default function LandingPage() {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-dvh flex-col">
       <Navbar />
 
       <main className="flex-1">
-        <section className="container flex flex-col items-center gap-6 py-24 text-center sm:py-32">
+        <section className="container flex flex-col items-center gap-6 py-16 text-center sm:py-32">
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-4 py-1.5 text-sm text-muted-foreground">
             <GraduationCap className="h-4 w-4" />
             Smarter attendance for modern classrooms
@@ -37,8 +37,8 @@ export default function LandingPage() {
 
           <h1 className="max-w-3xl text-balance text-4xl font-bold tracking-tight sm:text-6xl">
             Attendance, simplified with{" "}
-            <span className="bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-              SnapAttend AI
+            <span className="bg-gradient-to-r from-primary to-[#A53B4C] bg-clip-text text-transparent">
+              SnapAttend
             </span>
           </h1>
 
@@ -85,7 +85,7 @@ export default function LandingPage() {
 
       <footer className="border-t border-border/60 py-8">
         <div className="container flex flex-col items-center justify-between gap-4 text-sm text-muted-foreground sm:flex-row">
-          <p>&copy; {new Date().getFullYear()} SnapAttend AI. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} SnapAttend. All rights reserved.</p>
         </div>
       </footer>
     </div>

@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { AttendanceDiagnosticsHistory } from "@/components/diagnostics/attendance-diagnostics-history";
 
 export const metadata: Metadata = {
-  title: "Attendance Diagnostics | SnapAttend AI",
+  title: "Attendance Diagnostics | SnapAttend",
 };
 
 /** See the parallel gating + rationale comment in `app/dev/diagnostics/page.tsx`. */

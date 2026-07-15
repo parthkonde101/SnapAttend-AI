@@ -9,7 +9,14 @@ const config: Config = {
   theme: {
     container: {
       center: true,
-      padding: "2rem",
+      // Milestone 7B: was a flat 2rem on every breakpoint, which wasted a
+      // lot of usable width on narrow phones. Tightened for small screens,
+      // unchanged (2rem) from sm/tablet up so desktop/tablet layouts are
+      // pixel-identical to before.
+      padding: {
+        DEFAULT: "1rem",
+        sm: "2rem",
+      },
       screens: {
         "2xl": "1400px",
       },
@@ -24,6 +31,7 @@ const config: Config = {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          hover: "hsl(var(--primary-hover))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -68,11 +76,19 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(4px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        // Milestone 7C: one-shot background flash for newly-arrived
+        // attendance rows on the Teacher Live Review page — purely visual,
+        // fades to transparent on its own, no ongoing loop.
+        "row-highlight": {
+          "0%": { backgroundColor: "hsl(var(--primary) / 0.16)" },
+          "100%": { backgroundColor: "hsl(var(--primary) / 0)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "fade-in": "fade-in 0.4s ease-out",
+        "row-highlight": "row-highlight 2s ease-out",
       },
     },
   },

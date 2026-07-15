@@ -21,6 +21,30 @@ import type { AuthToken, RegistrationAnalysis, RegistrationVerifyResponse } from
 
 const MIN_PASSWORD_LENGTH = 8;
 
+const PROGRESS_STEPS = ["Verify ID", "Confirm Details", "Create Password"] as const;
+
+/** Milestone 7B: lightweight step indicator for Part 5's "clear progress
+ * indicators" requirement — purely presentational, doesn't affect the
+ * wizard's actual step/state machine below. */
+function RegistrationProgress({ activeIndex }: { activeIndex: number }) {
+  return (
+    <div className="mb-1 flex items-center justify-center gap-3" aria-label={`Step ${activeIndex + 1} of ${PROGRESS_STEPS.length}`}>
+      {PROGRESS_STEPS.map((label, index) => (
+        <div key={label} className="flex flex-col items-center gap-1">
+          <span
+            className={`h-1.5 w-8 rounded-full transition-colors sm:w-10 ${
+              index <= activeIndex ? "bg-primary" : "bg-muted"
+            }`}
+          />
+          <span className={`text-[10px] font-medium ${index === activeIndex ? "text-primary" : "text-muted-foreground"}`}>
+            {label}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type WizardStep =
   | "welcome"
   | "capture"
@@ -205,9 +229,12 @@ export function RegistrationWizard() {
     );
   }
 
+  const progressIndex = step === "review" ? 1 : step === "password" || step === "submitting" || step === "success" ? 2 : 0;
+
   return (
     <>
       <AuthShell title="Create your account" description="Verify your student ID to get started.">
+      <RegistrationProgress activeIndex={progressIndex} />
       {step === "welcome" && (
         <div className="space-y-5">
           <div className="flex flex-col items-center gap-3 py-2 text-center">

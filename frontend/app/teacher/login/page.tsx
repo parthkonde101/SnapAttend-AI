@@ -4,7 +4,7 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { TeacherLoginForm } from "@/components/auth/teacher-login-form";
 
 export const metadata: Metadata = {
-  title: "Teacher Login | SnapAttend AI",
+  title: "Teacher Login | SnapAttend",
 };
 
 export default function TeacherLoginPage() {

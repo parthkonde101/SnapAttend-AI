@@ -82,7 +82,7 @@ export default function TeacherDashboardPage() {
                     aria-checked={selectedDuration === seconds}
                     onClick={() => setSelectedDuration(seconds)}
                     className={cn(
-                      "rounded-lg border px-2 py-2 text-sm font-medium transition-colors",
+                      "min-h-11 rounded-lg border px-2 py-2 text-sm font-medium transition-colors",
                       selectedDuration === seconds
                         ? "border-primary bg-primary text-primary-foreground"
                         : "border-border bg-transparent text-muted-foreground hover:bg-muted"

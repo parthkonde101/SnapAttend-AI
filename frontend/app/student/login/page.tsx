@@ -4,7 +4,7 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { StudentLoginForm } from "@/components/auth/student-login-form";
 
 export const metadata: Metadata = {
-  title: "Student Login | SnapAttend AI",
+  title: "Student Login | SnapAttend",
 };
 
 export default function StudentLoginPage() {

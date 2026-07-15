@@ -13,7 +13,13 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 221 83% 53%;
+    /* Milestone 7B: premium maroon brand palette (replaces the old blue
+       theme). Primary #7A1F2B, Hover #641823, Dark #4E121A, Accent #A53B4C,
+       Background Accent #F8F2F3 — hand-converted to HSL below. Only these
+       tokens change; --secondary/--muted/--destructive stay neutral/red per
+       spec ("do NOT make everything maroon"). */
+    --primary: 352 60% 30%; /* #7A1F2B */
+    --primary-hover: 351 61% 24%; /* #641823 */
     --primary-foreground: 210 40% 98%;
 
     --secondary: 210 40% 96%;
@@ -22,15 +28,15 @@
     --muted: 210 40% 96%;
     --muted-foreground: 215 16% 47%;
 
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
+    --accent: 350 30% 96%; /* #F8F2F3 - Background Accent */
+    --accent-foreground: 352 60% 20%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
 
     --border: 214 32% 91%;
     --input: 214 32% 91%;
-    --ring: 221 83% 53%;
+    --ring: 352 60% 30%;
 
     --radius: 0.75rem;
   }
@@ -45,8 +51,15 @@
     --popover: 222 47% 8%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
+    /* Dark mode uses the brighter "Accent" maroon (#A53B4C) as its primary
+       so it stays visible against a near-black background, mirroring how
+       the old theme used a brighter blue in dark mode. Its foreground must
+       stay light (not the old theme's dark text) since this maroon is a
+       medium-dark, moderately-saturated color that needs light text for
+       contrast. */
+    --primary: 350 47% 44%; /* #A53B4C */
+    --primary-hover: 352 60% 30%; /* #7A1F2B */
+    --primary-foreground: 210 40% 98%;
 
     --secondary: 217 33% 17%;
     --secondary-foreground: 210 40% 98%;
@@ -54,7 +67,7 @@
     --muted: 217 33% 17%;
     --muted-foreground: 215 20% 65%;
 
-    --accent: 217 33% 17%;
+    --accent: 352 63% 19%; /* #4E121A - Dark, used as dark-mode's subtle accent surface */
     --accent-foreground: 210 40% 98%;
 
     --destructive: 0 63% 31%;
@@ -62,7 +75,7 @@
 
     --border: 217 33% 17%;
     --input: 217 33% 17%;
-    --ring: 217 91% 60%;
+    --ring: 350 47% 44%;
   }
 }
 

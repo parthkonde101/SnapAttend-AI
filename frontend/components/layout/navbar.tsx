@@ -11,7 +11,7 @@ export function Navbar() {
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Camera className="h-4 w-4" />
           </span>
-          <span>SnapAttend AI</span>
+          <span>SnapAttend</span>
         </Link>
         <nav className="flex items-center gap-1">
           <ThemeToggle />

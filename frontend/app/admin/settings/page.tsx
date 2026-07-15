@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { AdminDashboardShell } from "@/components/admin/admin-dashboard-shell";
 
 export const metadata: Metadata = {
-  title: "Settings | SnapAttend AI Admin",
+  title: "Settings | SnapAttend Admin",
 };
 
 /** Milestone 7A: placeholder page. Nothing functional yet, per spec. */

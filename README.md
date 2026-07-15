@@ -1,4 +1,4 @@
-# SnapAttend AI
+# SnapAttend
 
 Full-stack attendance management platform. Next.js 15 + FastAPI + PostgreSQL monorepo.
 
