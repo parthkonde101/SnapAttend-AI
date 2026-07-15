@@ -1,0 +1,130 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import type { ReactNode } from "react";
+import {
+  BarChart3,
+  Camera,
+  ClipboardList,
+  LayoutDashboard,
+  LogOut,
+  Settings,
+  Users,
+  GraduationCap,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { cn } from "@/lib/utils";
+import { clearSession } from "@/lib/auth";
+
+interface NavItem {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  comingSoon?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
+  { label: "Students", href: "/admin/students", icon: GraduationCap },
+  { label: "Teachers", href: "/admin/teachers", icon: Users },
+  { label: "Attendance Sessions", href: "/admin/sessions", icon: ClipboardList },
+  { label: "Settings", href: "/admin/settings", icon: Settings },
+  { label: "Analytics", href: "/admin/analytics", icon: BarChart3, comingSoon: true },
+];
+
+interface AdminDashboardShellProps {
+  children: ReactNode;
+}
+
+/**
+ * Shared authenticated layout for every /admin/* screen (Milestone 7A).
+ * Deliberately a sibling of `DashboardShell` (components/dashboard/), not
+ * a replacement — the student/teacher app keeps its existing top-bar-only
+ * layout untouched. Same design tokens (border-border, bg-background,
+ * text-muted-foreground, rounded-lg/xl) and the same header pattern
+ * (brand mark, theme toggle, logout) as `DashboardShell`, just with a left
+ * sidebar for admin-specific navigation per the milestone spec.
+ */
+export function AdminDashboardShell({ children }: AdminDashboardShellProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  function handleLogout() {
+    clearSession();
+    router.push("/");
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex h-16 items-center justify-between px-4 sm:px-6">
+          <div className="flex items-center gap-2 font-semibold tracking-tight">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Camera className="h-4 w-4" />
+            </span>
+            <span>SnapAttend AI</span>
+            <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              Admin
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="Log out" title="Log out">
+              <LogOut />
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex flex-1">
+        <aside className="hidden w-60 shrink-0 border-r border-border/60 bg-muted/20 sm:block">
+          <nav className="flex flex-col gap-1 p-4">
+            {NAV_ITEMS.map((item) => {
+              const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const Icon = item.icon;
+
+              if (item.comingSoon) {
+                return (
+                  <span
+                    key={item.href}
+                    className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground/50"
+                    title="Coming soon"
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                    <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">
+                      Soon
+                    </span>
+                  </span>
+                );
+              }
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <main className="flex-1 overflow-x-hidden px-4 py-8 sm:px-8">
+          <div className="mx-auto flex max-w-6xl flex-col gap-6">{children}</div>
+        </main>
+      </div>
+    </div>
+  );
+}

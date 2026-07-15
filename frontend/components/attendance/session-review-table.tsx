@@ -14,6 +14,14 @@ interface SessionReviewTableProps {
   isLoading: boolean;
   error: string | null;
   onSetStatus: (studentId: number, status: AttendanceStatus) => Promise<void>;
+  /** Milestone 7A: lets the Administrator System reuse this exact
+   * component against its own `/admin/sessions/{id}/photo/{student_id}`
+   * endpoint instead of the teacher-scoped one — an Administrator isn't a
+   * Teacher, so it can't go through `get_current_teacher`'s ownership
+   * check. Optional and defaults to the original teacher path, so the
+   * existing teacher review page (its only caller until now) is
+   * completely unaffected. */
+  photoBasePath?: string;
 }
 
 function formatTime(iso: string | null) {
@@ -91,7 +99,14 @@ function verificationDisplay(item: StudentAttendanceReviewItem): {
  * a scroll-friendly inline photo thumbnail, the AI evidence behind any
  * record (preserved even after an override), and an immediate
  * Present/Absent toggle. */
-export function SessionReviewTable({ sessionId, students, isLoading, error, onSetStatus }: SessionReviewTableProps) {
+export function SessionReviewTable({
+  sessionId,
+  students,
+  isLoading,
+  error,
+  onSetStatus,
+  photoBasePath = "/api/v1/attendance/session-review",
+}: SessionReviewTableProps) {
   const [pendingStudentId, setPendingStudentId] = useState<number | null>(null);
   const [enlargedStudentId, setEnlargedStudentId] = useState<number | null>(null);
   const [photoUrls, setPhotoUrls] = useState<Record<number, string>>({});
@@ -111,7 +126,7 @@ export function SessionReviewTable({ sessionId, students, isLoading, error, onSe
     toFetch.forEach((student) => fetchedIds.current.add(student.student_id));
 
     toFetch.forEach((student) => {
-      fetchAuthenticatedImageUrl(`/api/v1/attendance/session-review/${sessionId}/photo/${student.student_id}`)
+      fetchAuthenticatedImageUrl(`${photoBasePath}/${sessionId}/photo/${student.student_id}`)
         .then((url) => {
           setPhotoUrls((prev) => ({ ...prev, [student.student_id]: url }));
         })
@@ -119,7 +134,7 @@ export function SessionReviewTable({ sessionId, students, isLoading, error, onSe
           setPhotoErrors((prev) => ({ ...prev, [student.student_id]: true }));
         });
     });
-  }, [sessionId, students]);
+  }, [sessionId, students, photoBasePath]);
 
   // Revoke every object URL when the table itself unmounts (navigating away
   // from the review page) so repeated visits don't leak blob memory.

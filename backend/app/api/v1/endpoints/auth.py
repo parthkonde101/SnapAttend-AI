@@ -12,8 +12,10 @@ from app.api.deps import get_password_reset_student
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
+from app.models.admin import Admin
 from app.models.student import Student
 from app.models.teacher import Teacher
+from app.schemas.admin import AdminLogin
 from app.schemas.auth import PasswordResetCompleteRequest, PasswordResetVerifyResponse, Token
 from app.schemas.student import StudentLogin, StudentRegister
 from app.schemas.teacher import TeacherLogin
@@ -76,6 +78,27 @@ def login_teacher(payload: TeacherLogin, db: Session = Depends(get_db)) -> Token
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid teacher ID or password")
 
     access_token = create_access_token(subject=str(teacher.id), role="teacher")
+    return Token(access_token=access_token)
+
+
+@router.post("/admin/login", response_model=Token)
+def login_admin(payload: AdminLogin, db: Session = Depends(get_db)) -> Token:
+    """Authenticate an administrator by login id and password (Milestone
+    7A — Administrator System).
+
+    Deliberately a separate endpoint/flow from `/teacher/login` even
+    though the shape is identical — an Administrator is not a Teacher (see
+    `app.models.admin.Admin`), and issuing a token with `role="admin"`
+    here (never `"teacher"`) is what lets `get_current_admin` and
+    `get_current_teacher` stay mutually exclusive: an admin token can
+    never be used against a teacher-only route, and a teacher token can
+    never reach an admin-only one.
+    """
+    admin = db.scalar(select(Admin).where(Admin.login_id == payload.login_id))
+    if admin is None or not verify_password(payload.password, admin.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid login ID or password")
+
+    access_token = create_access_token(subject=str(admin.id), role="admin")
     return Token(access_token=access_token)
 
 

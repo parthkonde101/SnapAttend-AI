@@ -33,7 +33,7 @@ export function getToken(): string | null {
 /** Read the currently stored user role, if any. */
 export function getRole(): UserRole | null {
   const role = getCookie(ROLE_COOKIE);
-  return role === "student" || role === "teacher" ? role : null;
+  return role === "student" || role === "teacher" || role === "admin" ? role : null;
 }
 
 /** Clear the stored session, logging the user out. */

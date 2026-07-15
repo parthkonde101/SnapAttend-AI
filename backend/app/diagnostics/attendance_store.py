@@ -71,5 +71,32 @@ class AttendanceDiagnosticsStore:
             if matches(a)
         ]
 
+    def purge(self, *, session_id: int | None = None, student_id: int | None = None) -> None:
+        """Best-effort cleanup hook for the Administrator System (Milestone
+        7A): when an admin permanently deletes a session or a student, drop
+        any diagnostics attempts tied to it so nothing here still
+        references a row that no longer exists.
+
+        Deliberately a new, additive method — nothing about `add`/`get`/
+        `list`/`next_attempt_number` changes. Low-stakes by construction:
+        this store is in-memory only (never a database table, wiped on
+        every server restart), development-only (only ever populated when
+        `is_diagnostics_enabled()` is true), and already a bounded ring
+        buffer that silently evicts old entries — so a missed purge here
+        can never produce a persisted orphan, only a stale dev-tool entry
+        that ages out on its own.
+        """
+        if session_id is None and student_id is None:
+            return
+        with self._lock:
+            stale_ids = [
+                attempt_id
+                for attempt_id, attempt in self._attempts.items()
+                if (session_id is not None and attempt.session_id == session_id)
+                or (student_id is not None and attempt.student_id == student_id)
+            ]
+            for attempt_id in stale_ids:
+                del self._attempts[attempt_id]
+
 
 attendance_diagnostics_store = AttendanceDiagnosticsStore()

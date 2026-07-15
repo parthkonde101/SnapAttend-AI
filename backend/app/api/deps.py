@@ -5,11 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import decode_access_token
+from app.models.admin import Admin
 from app.models.student import Student
 from app.models.teacher import Teacher
 
 student_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/student/login", auto_error=False)
 teacher_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/teacher/login", auto_error=False)
+admin_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/admin/login", auto_error=False)
 password_reset_oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="api/v1/auth/student/forgot-password/verify", auto_error=False
 )
@@ -84,6 +86,37 @@ def get_current_teacher(
         raise CREDENTIALS_EXCEPTION
 
     return teacher
+
+
+def get_current_admin(
+    token: str | None = Depends(admin_oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> Admin:
+    """Resolve the currently authenticated administrator from a bearer
+    token (Milestone 7A — Administrator System).
+
+    Deliberately its own dependency, not a relaxed `get_current_teacher` —
+    only a token whose `role` is exactly `"admin"` is accepted, so a
+    teacher or student session token can never reach an admin-only route
+    (and an admin token can never be used against `get_current_teacher` /
+    `get_current_student` either — every admin endpoint lives under this
+    dependency alone). Same shape and failure mode as the other
+    `get_current_*` dependencies in this module: a single shared
+    `CREDENTIALS_EXCEPTION` (401), so an unauthenticated or wrong-role
+    caller learns nothing about which part of the check failed.
+    """
+    if token is None:
+        raise CREDENTIALS_EXCEPTION
+
+    payload = decode_access_token(token)
+    if payload is None or payload.get("role") != "admin":
+        raise CREDENTIALS_EXCEPTION
+
+    admin = db.get(Admin, int(payload["sub"]))
+    if admin is None:
+        raise CREDENTIALS_EXCEPTION
+
+    return admin
 
 
 def get_current_actor(

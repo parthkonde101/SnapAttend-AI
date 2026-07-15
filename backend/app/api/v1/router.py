@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    admin,
     attendance,
     attendance_diagnostics,
     auth,
@@ -22,3 +23,4 @@ api_router.include_router(diagnostics.router, prefix="/diagnostics", tags=["diag
 api_router.include_router(
     attendance_diagnostics.router, prefix="/attendance-diagnostics", tags=["attendance-diagnostics"]
 )
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])

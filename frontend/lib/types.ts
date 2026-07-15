@@ -1,4 +1,4 @@
-export type UserRole = "student" | "teacher";
+export type UserRole = "student" | "teacher" | "admin";
 
 export interface AuthToken {
   access_token: string;
@@ -23,6 +23,128 @@ export interface Teacher {
   teacher_id: string;
   full_name: string;
   created_at: string;
+}
+
+// --- Administrator System (Milestone 7A) ------------------------------------
+// Mirrors backend/app/schemas/admin.py. Entirely additive — nothing here is
+// read by the student or teacher facing surfaces above.
+
+export interface Admin {
+  id: number;
+  login_id: string;
+  full_name: string;
+  created_at: string;
+}
+
+export interface RecentActivityItem {
+  student_name: string;
+  student_prn: string;
+  course: string | null;
+  teacher_name: string;
+  status: AttendanceStatus;
+  marked_at: string;
+}
+
+export interface DashboardStats {
+  total_students: number;
+  total_teachers: number;
+  total_sessions: number;
+  active_session: ActiveSessionInfo | null;
+  today_present_count: number;
+  recent_activity: RecentActivityItem[];
+}
+
+export interface TeacherAdminRead {
+  id: number;
+  teacher_id: string;
+  full_name: string;
+  course: string | null;
+  created_at: string;
+  session_count: number;
+}
+
+export interface TeacherCreateRequest {
+  full_name: string;
+  teacher_id: string;
+  course?: string | null;
+  password: string;
+}
+
+export interface TeacherUpdateRequest {
+  full_name?: string;
+  teacher_id?: string;
+  course?: string | null;
+}
+
+export interface AdminPasswordResetRequest {
+  new_password: string;
+}
+
+export interface StudentAdminRead {
+  id: number;
+  prn: string;
+  full_name: string;
+  division: string | null;
+  created_at: string;
+  attendance_percentage: number;
+}
+
+export interface StudentUpdateRequest {
+  full_name?: string;
+  prn?: string;
+  division?: string | null;
+}
+
+export interface StudentCourseAttendance {
+  course: string;
+  present_count: number;
+  total_sessions: number;
+  percentage: number;
+}
+
+export interface StudentAttendanceHistoryItem {
+  session_id: number;
+  course: string | null;
+  teacher_name: string;
+  date: string;
+  status: AttendanceStatus;
+  marked_at: string | null;
+  verification_source: AttendanceVerificationSource;
+}
+
+export interface StudentProfile {
+  student: StudentAdminRead;
+  verified_prn: string | null;
+  verified_name: string | null;
+  verified_at: string | null;
+  has_registration_photo: boolean;
+  course_wise: StudentCourseAttendance[];
+  history: StudentAttendanceHistoryItem[];
+}
+
+export interface AdminSessionListItem {
+  session_id: number;
+  course: string | null;
+  teacher_id: number;
+  teacher_name: string;
+  date: string;
+  duration_seconds: number;
+  present_count: number;
+  status: SessionStatus;
+}
+
+export interface AdminSessionDeleteConfirmation {
+  session_id: number;
+  course: string | null;
+  teacher_name: string;
+  date: string;
+  present_count: number;
+  photo_count: number;
+  attendance_record_count: number;
+}
+
+export interface SimpleSuccessResponse {
+  success: boolean;
 }
 
 export interface AttendanceSession {

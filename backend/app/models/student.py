@@ -30,6 +30,15 @@ class Student(Base):
     )
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # --- Administrator System (Milestone 7A) ---------------------------------
+    # Nullable/additive, same rationale as Teacher.course: existing student
+    # rows predate this field. Nothing in registration, login, or attendance
+    # verification reads or writes this column — it exists purely for the
+    # admin Student Management table/search (search by PRN, name, or
+    # division) and is only ever set by an administrator via
+    # `AdminStudentService`.
+    division: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     attendance_records: Mapped[list["Attendance"]] = relationship(
         back_populates="student", cascade="all, delete-orphan"
     )

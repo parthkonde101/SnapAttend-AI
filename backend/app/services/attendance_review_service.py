@@ -53,6 +53,22 @@ class AttendanceReviewService:
             raise LookupError("Attendance session not found")
         return session
 
+    def get_session_for_admin(self, session_id: int) -> AttendanceSession:
+        """Milestone 7A — Administrator System: the same lookup as
+        `get_session_for_teacher`, but deliberately with no ownership
+        check at all — an Administrator has unrestricted access and is not
+        scoped to any one teacher's sessions. Kept as its own method
+        (rather than making the check in `get_session_for_teacher`
+        conditional) so that method's existing behavior and call sites
+        stay completely untouched; this is purely additive, used only by
+        `app/services/admin_session_service.py` and the `/admin/sessions/*`
+        endpoints — the teacher-facing review page still goes through
+        `get_session_for_teacher` exactly as before."""
+        session = self.db.get(AttendanceSession, session_id)
+        if session is None:
+            raise LookupError("Attendance session not found")
+        return session
+
     # --- Roster ----------------------------------------------------------------
     def build_session_review(self, session: AttendanceSession) -> SessionReviewResponse:
         """Every registered student, exactly once — present ones carry the
@@ -192,6 +208,79 @@ class AttendanceReviewService:
             row.status = status
             row.is_teacher_override = True
             row.overridden_by_teacher_id = teacher.id
+            row.overridden_at = now
+            self.db.commit()
+
+        self.db.refresh(row)
+
+        return StudentAttendanceReviewItem(
+            student_id=student.id,
+            prn=student.prn,
+            full_name=student.full_name,
+            status=row.status,  # type: ignore[arg-type]
+            verification_source=row.verification_source,  # type: ignore[arg-type]
+            marked_at=row.marked_at,
+            marker_detected_character=row.marker_detected_character,
+            marker_confidence=row.marker_confidence,
+            display_detected=row.display_detected,
+            display_confidence=row.display_confidence,
+            marker_verification_mode=row.marker_verification_mode,  # type: ignore[arg-type]
+            is_teacher_override=row.is_teacher_override,
+            overridden_at=row.overridden_at,
+            has_photo=row.image_reference is not None,
+        )
+
+    def set_status_as_admin(self, *, session: AttendanceSession, student_id: int, status: str) -> StudentAttendanceReviewItem:
+        """Administrator override (Milestone 7A): identical semantics to
+        `set_status` above, except `overridden_by_teacher_id` is left NULL
+        rather than attributed to a teacher — an Administrator is not a
+        `Teacher` row, so there is no id to store there, and the column is
+        nullable with `ondelete="SET NULL"` precisely to allow that. A new,
+        parallel method rather than widening `set_status`'s signature to
+        accept `Teacher | None`, so that method's existing behavior, tests,
+        and call sites (the teacher review endpoint) are completely
+        unaffected by this milestone. See `set_status`'s docstring for the
+        non-destructive-override rationale, which applies identically here."""
+        student = self.db.get(Student, student_id)
+        if student is None:
+            raise LookupError("Student not found")
+
+        row = self.db.scalar(
+            select(Attendance).where(Attendance.student_id == student_id, Attendance.session_id == session.id)
+        )
+
+        now = datetime.now(timezone.utc)
+        if row is not None:
+            row.status = status
+            row.is_teacher_override = True
+            row.overridden_by_teacher_id = None
+            row.overridden_at = now
+        else:
+            row = Attendance(
+                student_id=student_id,
+                session_id=session.id,
+                verification_source="teacher_override",
+                marker=session.marker,
+                status=status,
+                marker_verification_mode="teacher_override",
+                is_teacher_override=True,
+                overridden_by_teacher_id=None,
+                overridden_at=now,
+            )
+            self.db.add(row)
+
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            row = self.db.scalar(
+                select(Attendance).where(Attendance.student_id == student_id, Attendance.session_id == session.id)
+            )
+            if row is None:
+                raise
+            row.status = status
+            row.is_teacher_override = True
+            row.overridden_by_teacher_id = None
             row.overridden_at = now
             self.db.commit()
 
