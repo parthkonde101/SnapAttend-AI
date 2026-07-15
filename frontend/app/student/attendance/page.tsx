@@ -2,22 +2,25 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Info, Loader2, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useActiveSession } from "@/hooks/use-attendance";
 import { useCamera, type CameraStatus } from "@/hooks/use-camera";
-import { uploadFile } from "@/lib/api";
+import { uploadFile, ApiError } from "@/lib/api";
 import { formatCountdown } from "@/lib/utils";
-import type { PhotoUploadResponse } from "@/lib/types";
+import type { MarkAttendanceResponse } from "@/lib/types";
 
-type CaptureStep = "camera" | "preview" | "uploading" | "success";
+type CaptureStep = "camera" | "preview" | "uploading" | "success" | "already-marked";
 
 /**
- * Full-screen ID-card capture flow, reached from the student dashboard's
- * "Mark Attendance" button while a session is active. This milestone only
- * covers capture + upload — no OCR, AI verification, or attendance
- * marking happens here (see backend `/attendance/upload-photo`).
+ * Full-screen attendance capture flow, reached from the student
+ * dashboard's "Mark Attendance" button while a session is active. Submits
+ * directly to `/attendance/mark`, which runs the Attendance Verification
+ * Engine (ID card + classroom marker, both independently verified) and
+ * records attendance on the first success. Students may retry unlimited
+ * times while the session stays active — a failed attempt just returns to
+ * the preview step with the reason shown, never a dead end.
  */
 export default function StudentAttendancePage() {
   const router = useRouter();
@@ -27,6 +30,7 @@ export default function StudentAttendancePage() {
   const [step, setStep] = useState<CaptureStep>("camera");
   const [photo, setPhoto] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const hasRequestedCamera = useRef(false);
 
   // Auto-request the camera once we've confirmed a session is active.
@@ -37,9 +41,10 @@ export default function StudentAttendancePage() {
     }
   }, [isActive, step, start]);
 
-  // Auto-return to the dashboard shortly after a successful upload.
+  // Auto-return to the dashboard shortly after a successful (or
+  // already-recorded) verification.
   useEffect(() => {
-    if (step !== "success") return;
+    if (step !== "success" && step !== "already-marked") return;
     const timeoutId = setTimeout(() => router.push("/student/dashboard"), 2500);
     return () => clearTimeout(timeoutId);
   }, [step, router]);
@@ -70,10 +75,19 @@ export default function StudentAttendancePage() {
     setUploadError(null);
     try {
       const blob = await (await fetch(photo)).blob();
-      await uploadFile<PhotoUploadResponse>("/api/v1/attendance/upload-photo", blob, "attendance.jpg");
-      setStep("success");
+      const result = await uploadFile<MarkAttendanceResponse>("/api/v1/attendance/mark", blob, "attendance.jpg");
+      setWarnings(result.warnings);
+
+      if (result.success) {
+        setStep("success");
+      } else if (result.already_recorded) {
+        setStep("already-marked");
+      } else {
+        setUploadError(result.reason ?? "Verification failed. Please retry.");
+        setStep("preview");
+      }
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed. Please try again.");
+      setUploadError(err instanceof ApiError ? err.message : "Upload failed. Please try again.");
       setStep("preview");
     }
   }
@@ -123,7 +137,9 @@ export default function StudentAttendancePage() {
         />
       )}
 
-      {step === "success" && <SuccessView onDone={() => router.push("/student/dashboard")} />}
+      {step === "success" && <SuccessView warnings={warnings} onDone={() => router.push("/student/dashboard")} />}
+
+      {step === "already-marked" && <AlreadyMarkedView onDone={() => router.push("/student/dashboard")} />}
     </div>
   );
 }
@@ -188,8 +204,8 @@ function CameraView({ videoRef, status, error, secondsLeft, onBack, onRetryPermi
               <p className="rounded-full bg-black/45 px-4 py-1.5 text-sm text-white/90 backdrop-blur">
                 Hold your ID card close to the camera until it fills the left guide.
               </p>
-              <p className="text-sm text-white/70">Keep the classroom code visible inside the right guide.</p>
-              <p className="text-xs text-white/45">Best results are achieved when the phone focuses on your ID.</p>
+              <p className="text-sm text-white/70">Keep the classroom display and its marker visible inside the right guide.</p>
+              <p className="text-xs text-white/45">Both your ID card and the marker must be visible in the same photo.</p>
             </div>
           </div>
 
@@ -281,15 +297,33 @@ function PreviewView({ photo, isUploading, error, onBack, onRetake, onSubmit }: 
   );
 }
 
-function SuccessView({ onDone }: { onDone: () => void }) {
+function SuccessView({ warnings, onDone }: { warnings: string[]; onDone: () => void }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-8 text-center animate-in">
       <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
         <CheckCircle2 className="h-10 w-10" />
       </div>
       <div className="space-y-2">
-        <h1 className="text-2xl font-bold">Photo uploaded successfully.</h1>
-        <p className="max-w-sm text-white/60">Verification will be performed.</p>
+        <h1 className="text-2xl font-bold">Attendance marked!</h1>
+        <p className="max-w-sm text-white/60">Your ID and the classroom marker were both verified.</p>
+        {warnings.length > 0 && <p className="max-w-sm text-xs text-white/40">{warnings.join(" ")}</p>}
+      </div>
+      <Button variant="secondary" onClick={onDone}>
+        Back to dashboard
+      </Button>
+    </div>
+  );
+}
+
+function AlreadyMarkedView({ onDone }: { onDone: () => void }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-8 text-center animate-in">
+      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-sky-500/15 text-sky-400">
+        <Info className="h-10 w-10" />
+      </div>
+      <div className="space-y-2">
+        <h1 className="text-2xl font-bold">Already marked present.</h1>
+        <p className="max-w-sm text-white/60">You&apos;ve already been marked present for this session.</p>
       </div>
       <Button variant="secondary" onClick={onDone}>
         Back to dashboard

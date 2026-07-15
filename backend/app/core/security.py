@@ -9,7 +9,13 @@ from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-TokenRole = Literal["student", "teacher"]
+TokenRole = Literal["student", "teacher", "password_reset"]
+"""`password_reset` is deliberately a distinct role, not just a normal
+student token issued early — see app.api.deps.get_password_reset_student.
+A token minted after ID-card verification during the forgot-password flow
+must only ever be usable for "set a new password", never as a substitute
+student session token (which would let a bare ID-card photo, without ever
+proving knowledge of the current password, grant full account access)."""
 
 
 def hash_password(password: str) -> str:

@@ -10,6 +10,9 @@ from app.models.teacher import Teacher
 
 student_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/student/login", auto_error=False)
 teacher_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/teacher/login", auto_error=False)
+password_reset_oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="api/v1/auth/student/forgot-password/verify", auto_error=False
+)
 
 CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -28,6 +31,33 @@ def get_current_student(
 
     payload = decode_access_token(token)
     if payload is None or payload.get("role") != "student":
+        raise CREDENTIALS_EXCEPTION
+
+    student = db.get(Student, int(payload["sub"]))
+    if student is None:
+        raise CREDENTIALS_EXCEPTION
+
+    return student
+
+
+def get_password_reset_student(
+    token: str | None = Depends(password_reset_oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> Student:
+    """Resolve the student authorized by a short-lived password-reset
+    token (see app.core.security.TokenRole and
+    app/api/v1/endpoints/auth.py's forgot-password endpoints).
+
+    Deliberately its own dependency, not a relaxed version of
+    `get_current_student` — it only ever accepts a token whose `role` is
+    exactly `"password_reset"`, so a normal student session token (or vice
+    versa, a reset token) can never be used where the other is expected.
+    """
+    if token is None:
+        raise CREDENTIALS_EXCEPTION
+
+    payload = decode_access_token(token)
+    if payload is None or payload.get("role") != "password_reset":
         raise CREDENTIALS_EXCEPTION
 
     student = db.get(Student, int(payload["sub"]))

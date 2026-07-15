@@ -54,3 +54,9 @@ zxing-cpp==3.1.0
 # failure class is exactly why zxing-cpp is the default above; uncomment
 # this only if you already have a working zbar install and prefer it.
 # pyzbar==0.1.9
+
+# --- Attendance export (app/services/attendance_export_service.py) ---------
+# Builds the teacher-facing .xlsx attendance export. Pure-Python (no native
+# extension), so it installs identically everywhere the rest of this
+# project does.
+openpyxl==3.1.5

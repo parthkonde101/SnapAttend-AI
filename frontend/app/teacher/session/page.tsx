@@ -1,13 +1,14 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, Square, Users } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { Camera, Loader2, Square, UserCheck, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { useActiveSession } from "@/hooks/use-attendance";
+import { useActiveSession, useSessionRecords } from "@/hooks/use-attendance";
 import { apiRequest, ApiError } from "@/lib/api";
 import { formatCountdown } from "@/lib/utils";
+import { SESSION_DURATION_OPTIONS_SECONDS, type SessionDurationSeconds } from "@/lib/types";
 
 /**
  * Fullscreen presentation screen, meant to be projected on a classroom
@@ -16,8 +17,24 @@ import { formatCountdown } from "@/lib/utils";
  * entry point ("Start Attendance").
  */
 export default function TeacherSessionPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="dark flex min-h-screen w-full items-center justify-center bg-black">
+          <Loader2 className="h-8 w-8 animate-spin text-white/60" />
+        </div>
+      }
+    >
+      <TeacherSessionPageContent />
+    </Suspense>
+  );
+}
+
+function TeacherSessionPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { session, isActive, secondsLeft, isLoading, refetch } = useActiveSession();
+  const { data: records } = useSessionRecords(isActive ? session?.session_id ?? null : null);
 
   const [hasEnsuredSession, setHasEnsuredSession] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -25,7 +42,9 @@ export default function TeacherSessionPage() {
   const attemptedStart = useRef(false);
 
   // Ensure a session exists: resume the active one if this page was
-  // refreshed mid-session, otherwise start a fresh 90 second session.
+  // refreshed mid-session, otherwise start a fresh session using the
+  // duration chosen on the dashboard (?duration=<seconds>, falling back to
+  // the backend's own 2-minute default if missing/invalid).
   useEffect(() => {
     if (isLoading) return;
 
@@ -36,7 +55,12 @@ export default function TeacherSessionPage() {
 
     if (!hasEnsuredSession && !attemptedStart.current) {
       attemptedStart.current = true;
-      apiRequest("/api/v1/attendance/start-session", { method: "POST" })
+      const requestedDuration = Number(searchParams.get("duration"));
+      const duration = SESSION_DURATION_OPTIONS_SECONDS.includes(requestedDuration as SessionDurationSeconds)
+        ? requestedDuration
+        : undefined;
+
+      apiRequest("/api/v1/attendance/start-session", { method: "POST", body: { duration_seconds: duration } })
         .then(() => {
           setHasEnsuredSession(true);
           refetch();
@@ -45,7 +69,7 @@ export default function TeacherSessionPage() {
           setStartError(err instanceof ApiError ? err.message : "Could not start the attendance session.");
         });
     }
-  }, [isLoading, isActive, hasEnsuredSession, refetch]);
+  }, [isLoading, isActive, hasEnsuredSession, refetch, searchParams]);
 
   async function handleEndSession() {
     setIsEnding(true);
@@ -63,9 +87,14 @@ export default function TeacherSessionPage() {
   const hasEnded = hasEnsuredSession && !isActive && !startError;
 
   return (
-    <div className="dark min-h-screen w-full bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white">
-      <div className="flex min-h-screen w-full flex-col items-center justify-center px-6 py-10">
-        <div className="mb-10 flex items-center gap-2 text-white/60">
+    // Solid near-black page background (not a gradient) — every pixel a
+    // student's camera sees around the marker frame should be genuinely
+    // dark, not just relatively darker than its surroundings. See
+    // backend/app/ai/display.py's display-panel geometry stage, which
+    // specifically checks for this (MARKER_MAX_DISPLAY_MEAN_BRIGHTNESS).
+    <div className="dark min-h-screen w-full bg-black text-white">
+      <div className="flex min-h-screen w-full flex-col items-center justify-center gap-10 px-6 py-10">
+        <div className="flex items-center gap-2 text-white/60">
           <Camera className="h-5 w-5" />
           <span className="text-sm font-medium tracking-[0.3em] uppercase">SnapAttend</span>
         </div>
@@ -92,11 +121,45 @@ export default function TeacherSessionPage() {
               Attendance Active
             </span>
 
+            {/*
+             * Marker detection area — deliberately isolated from every other
+             * element on this screen (countdown, session stats, roster) so
+             * nothing else competes with it for OCR attention. Fixed square
+             * frame, solid black background, bright white glyph:
+             *   - Frame size is driven by min(vh, vw, cap) so it's always
+             *     the largest square that fits the viewport without ever
+             *     overflowing — this container's *size* never changes
+             *     between renders, only the character inside it does.
+             *   - Glyph font-size is a fixed fraction of the frame size
+             *     (~65%), landing inside the 60-70% "of the display height"
+             *     the marker is required to occupy, with the remaining
+             *     ~35% split as margin on every side — exactly the
+             *     "generous empty space" the detector's geometric glyph
+             *     search relies on (backend/app/ai/display.py,
+             *     MARKER_MIN/MAX_GLYPH_HEIGHT_RATIO).
+             *   - This frame is the primary target the detector's
+             *     display-panel search is built to find: a large, filled,
+             *     high-contrast dark rectangle, unmistakably distinct from
+             *     the rest of the (also dark, but unframed) page.
+             *   - The border itself is now a thick, solid, fully-opaque
+             *     white ring (not a faint tint) — evidence-driven: real
+             *     captures showed a subtle border doesn't reliably survive
+             *     camera/JPEG compression, so display-region detection
+             *     can't yet lock onto "just the frame" and instead treats
+             *     the whole (also-dark) screen as one region. A bold,
+             *     unmistakable border is what a frame-refinement pass can
+             *     actually detect against real-world noise.
+             */}
             <div
-              className="select-none font-bold leading-none tracking-[0.15em]"
-              style={{ fontSize: "clamp(5rem, 24vw, 300px)" }}
+              className="relative flex shrink-0 items-center justify-center rounded-[8%] border-[10px] border-white bg-black"
+              style={{ width: "min(72vh, 72vw, 620px)", height: "min(72vh, 72vw, 620px)" }}
             >
-              {session.session_code}
+              <span
+                className="select-none font-black leading-none tracking-normal text-white"
+                style={{ fontSize: "min(46vh, 46vw, 400px)" }}
+              >
+                {session.marker ?? "—"}
+              </span>
             </div>
 
             <div className="flex flex-col items-center gap-2">
@@ -106,16 +169,42 @@ export default function TeacherSessionPage() {
               >
                 {formatCountdown(secondsLeft)}
               </span>
-              <span className="text-sm uppercase tracking-[0.3em] text-white/40">Time remaining</span>
+              <span className="text-sm uppercase tracking-[0.3em] text-white/40">Time Remaining</span>
             </div>
 
-            <div className="flex flex-col items-center gap-2">
-              <div className="flex items-center gap-3 text-4xl font-semibold sm:text-5xl">
-                <Users className="h-8 w-8 text-white/50" />
-                {session.present_count}
+            <div className="flex w-full max-w-md items-stretch justify-center gap-8">
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex items-center gap-3 text-4xl font-semibold sm:text-5xl">
+                  <Users className="h-8 w-8 text-white/50" />
+                  {records?.present_count ?? session.present_count}
+                </div>
+                <span className="text-sm uppercase tracking-[0.3em] text-white/40">Present</span>
               </div>
-              <span className="text-sm uppercase tracking-[0.3em] text-white/40">Students Present</span>
+              {records && (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex items-center gap-3 text-4xl font-semibold text-white/60 sm:text-5xl">
+                    <UserCheck className="h-8 w-8 text-white/30" />
+                    {records.remaining_count}
+                  </div>
+                  <span className="text-sm uppercase tracking-[0.3em] text-white/40">Remaining</span>
+                </div>
+              )}
             </div>
+
+            {records && records.records.length > 0 && (
+              <div className="max-h-48 w-full max-w-md overflow-y-auto rounded-xl border border-white/10 bg-white/5 p-3 text-left">
+                <ul className="divide-y divide-white/10">
+                  {records.records.map((record) => (
+                    <li key={record.student_id} className="flex items-center justify-between py-2 text-sm text-white/80">
+                      <span>{record.full_name}</span>
+                      <span className="font-mono text-xs text-white/40">
+                        {new Date(record.marked_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <Button
               variant="ghost"

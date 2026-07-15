@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Camera, Loader2, RotateCcw } from "lucide-react";
+import { AlertCircle, Camera, IdCard, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AuthShell } from "@/components/auth/auth-shell";
@@ -21,32 +21,47 @@ import type { AuthToken, RegistrationAnalysis, RegistrationVerifyResponse } from
 
 const MIN_PASSWORD_LENGTH = 8;
 
-type WizardStep = "details" | "capture" | "analyzing" | "quality-failed" | "review" | "submitting" | "success";
+type WizardStep =
+  | "welcome"
+  | "capture"
+  | "analyzing"
+  | "quality-failed"
+  | "review"
+  | "password"
+  | "submitting"
+  | "success";
 
 /**
- * Orchestrates the full "Verified Student Registration" flow: collect a
- * password, capture an ID photo with a dedicated camera, run it through
- * the registration intelligence pipeline, let the student review/edit
- * the extracted PRN + name, then confirm.
+ * Orchestrates the full "Verified Student Registration" flow, in this
+ * order (Milestone 6B — identity must be extracted and confirmed *before*
+ * a password is ever collected, never the other way around):
  *
- * "Confirm" calls the existing, unmodified `POST /auth/student/register`
- * to create the account (unchanged contract), then
- * `POST /registration/verify` to persist the AI-verified snapshot. If the
- * second call fails for any reason, the account still exists and the
- * student still lands on their dashboard — verification metadata is an
- * enhancement, not a gate.
+ *   Welcome -> Capture ID -> Run extraction -> Review/correct PRN+name ->
+ *   Create Password -> Registration Complete
+ *
+ * No backend changes were needed for this reordering: `POST
+ * /registration/analyze` was already unauthenticated (it has to run before
+ * any account exists), and `POST /auth/student/register` already accepts
+ * `prn` + `full_name` + `password` together in a single call — this wizard
+ * simply collects the password later than it used to, then makes that same
+ * call once, right before "Registration Complete". "Confirm" still calls
+ * the existing, unmodified `POST /auth/student/register` to create the
+ * account, then `POST /registration/verify` to persist the AI-verified
+ * snapshot — if that second call fails for any reason, the account still
+ * exists and the student still lands on their dashboard; verification
+ * metadata is an enhancement, not a gate.
  */
 export function RegistrationWizard() {
   const router = useRouter();
   const camera = useCamera();
   const diagnosticsEnabled = useDiagnosticsEnabled();
 
-  const [step, setStep] = useState<WizardStep>("details");
+  const [step, setStep] = useState<WizardStep>("welcome");
   const [showAnalysis, setShowAnalysis] = useState(false);
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const [analysis, setAnalysis] = useState<RegistrationAnalysis | null>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
@@ -75,23 +90,6 @@ export function RegistrationWizard() {
     const timeoutId = setTimeout(() => router.push("/student/dashboard"), 2000);
     return () => clearTimeout(timeoutId);
   }, [step, router, showAnalysis]);
-
-  function handleDetailsNext() {
-    if (!password || !confirmPassword) {
-      setDetailsError("Please enter and confirm your password.");
-      return;
-    }
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setDetailsError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
-      return;
-    }
-    if (password !== confirmPassword) {
-      setDetailsError("Passwords do not match.");
-      return;
-    }
-    setDetailsError(null);
-    setStep("capture");
-  }
 
   async function handleCapture() {
     const dataUrl = camera.capture();
@@ -125,7 +123,31 @@ export function RegistrationWizard() {
     setStep("capture");
   }
 
+  function handleReviewContinue() {
+    // Nothing is saved yet — this only moves on to password creation, per
+    // the required order (identity confirmed first, password last).
+    setStep("password");
+  }
+
+  function handlePasswordBack() {
+    setPasswordError(null);
+    setStep("review");
+  }
+
   async function handleConfirm() {
+    if (!password || !confirmPassword) {
+      setPasswordError("Please enter and confirm your password.");
+      return;
+    }
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      return;
+    }
+    if (password !== confirmPassword) {
+      setPasswordError("Passwords do not match.");
+      return;
+    }
+    setPasswordError(null);
     setStep("submitting");
     setSubmitError(null);
 
@@ -153,7 +175,7 @@ export function RegistrationWizard() {
       setStep("success");
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
-      setStep("review");
+      setStep("password");
     }
   }
 
@@ -186,46 +208,21 @@ export function RegistrationWizard() {
   return (
     <>
       <AuthShell title="Create your account" description="Verify your student ID to get started.">
-      {step === "details" && (
-        <div className="space-y-4">
-          {detailsError && (
-            <Alert variant="destructive">
-              <AlertCircle />
-              <AlertDescription>{detailsError}</AlertDescription>
-            </Alert>
-          )}
-
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+      {step === "welcome" && (
+        <div className="space-y-5">
+          <div className="flex flex-col items-center gap-3 py-2 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <IdCard className="h-7 w-7" />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              We&apos;ll scan your student ID card first to verify your PRN and name — you&apos;ll create a password
+              afterward, once your identity is confirmed.
+            </p>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="confirmPassword">Confirm password</Label>
-            <Input
-              id="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Next, you&apos;ll capture a photo of your student ID so we can verify your PRN and name.
-          </p>
-
-          <Button className="w-full gap-2" onClick={handleDetailsNext}>
+          <Button className="w-full gap-2" onClick={() => setStep("capture")}>
             <Camera className="h-4 w-4" />
-            Continue to ID capture
+            Scan My ID Card
           </Button>
 
           <p className="text-center text-sm text-muted-foreground">
@@ -256,7 +253,7 @@ export function RegistrationWizard() {
         </div>
       )}
 
-      {(step === "review" || step === "submitting") && (
+      {step === "review" && (
         <RegistrationReviewForm
           prn={reviewPrn}
           studentName={reviewName}
@@ -264,11 +261,67 @@ export function RegistrationWizard() {
           onStudentNameChange={setReviewName}
           warnings={analysis?.warnings ?? []}
           barcode={analysis?.barcode ?? null}
-          isSubmitting={step === "submitting"}
-          error={submitError}
           onRetake={handleRetake}
-          onConfirm={handleConfirm}
+          onContinue={handleReviewContinue}
         />
+      )}
+
+      {(step === "password" || step === "submitting") && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <ShieldCheck className="h-4 w-4 text-emerald-500" />
+            Identity confirmed — now create a password to finish registering.
+          </div>
+
+          {submitError && (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertDescription>{submitError}</AlertDescription>
+            </Alert>
+          )}
+          {passwordError && (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertDescription>{passwordError}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={step === "submitting"}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">Confirm password</Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={step === "submitting"}
+              required
+            />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" className="flex-1" onClick={handlePasswordBack} disabled={step === "submitting"}>
+              Back
+            </Button>
+            <Button className="flex-1 gap-2" onClick={handleConfirm} disabled={step === "submitting"}>
+              {step === "submitting" && <Loader2 className="h-4 w-4 animate-spin" />}
+              {step === "submitting" ? "Creating account…" : "Create Account"}
+            </Button>
+          </div>
+        </div>
       )}
 
       {step === "success" && (

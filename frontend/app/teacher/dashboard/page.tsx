@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { ClipboardList, History, Loader2, PlayCircle, RefreshCw } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,7 +11,15 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { SessionHistoryTable } from "@/components/attendance/session-history-table";
 import { useSessionHistory } from "@/hooks/use-attendance";
 import { useCurrentUser } from "@/hooks/use-auth";
-import type { Teacher } from "@/lib/types";
+import { SESSION_DURATION_OPTIONS_SECONDS, type SessionDurationSeconds, type Teacher } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+const DEFAULT_DURATION_SECONDS: SessionDurationSeconds = 120;
+
+function formatDurationLabel(seconds: number) {
+  const minutes = Math.round(seconds / 60);
+  return `${minutes} min`;
+}
 
 export default function TeacherDashboardPage() {
   const router = useRouter();
@@ -19,9 +27,10 @@ export default function TeacherDashboardPage() {
   const { sessions, isLoading: isHistoryLoading, error: historyError, refetch: refetchHistory } =
     useSessionHistory();
   const historyRef = useRef<HTMLDivElement>(null);
+  const [selectedDuration, setSelectedDuration] = useState<SessionDurationSeconds>(DEFAULT_DURATION_SECONDS);
 
   function handleStartAttendance() {
-    router.push("/teacher/session");
+    router.push(`/teacher/session?duration=${selectedDuration}`);
   }
 
   function handleViewAttendance() {
@@ -61,9 +70,28 @@ export default function TeacherDashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Start Attendance</CardTitle>
-              <CardDescription>Open a new attendance session for your class.</CardDescription>
+              <CardDescription>Choose a duration, then open a new attendance session for your class.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex flex-col gap-4">
+              <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Session duration">
+                {SESSION_DURATION_OPTIONS_SECONDS.map((seconds) => (
+                  <button
+                    key={seconds}
+                    type="button"
+                    role="radio"
+                    aria-checked={selectedDuration === seconds}
+                    onClick={() => setSelectedDuration(seconds)}
+                    className={cn(
+                      "rounded-lg border px-2 py-2 text-sm font-medium transition-colors",
+                      selectedDuration === seconds
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-transparent text-muted-foreground hover:bg-muted"
+                    )}
+                  >
+                    {formatDurationLabel(seconds)}
+                  </button>
+                ))}
+              </div>
               <Button size="lg" className="w-full" onClick={handleStartAttendance}>
                 <PlayCircle />
                 Start Attendance

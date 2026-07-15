@@ -1,5 +1,7 @@
-import { Loader2 } from "lucide-react";
+import Link from "next/link";
+import { ClipboardList, Loader2 } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { cn, formatCountdown } from "@/lib/utils";
 import type { SessionHistoryItem } from "@/lib/types";
 
@@ -44,7 +46,8 @@ export function SessionHistoryTable({ sessions, isLoading, error }: SessionHisto
             <th className="pb-3 pr-4 font-medium">Time</th>
             <th className="pb-3 pr-4 font-medium">Duration</th>
             <th className="pb-3 pr-4 font-medium">Status</th>
-            <th className="pb-3 font-medium">Present</th>
+            <th className="pb-3 pr-4 font-medium">Present</th>
+            <th className="pb-3 font-medium">Review</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -73,7 +76,15 @@ export function SessionHistoryTable({ sessions, isLoading, error }: SessionHisto
                   {item.status === "active" ? "Active" : "Ended"}
                 </span>
               </td>
-              <td className="py-3 font-medium">{item.present_count}</td>
+              <td className="py-3 pr-4 font-medium">{item.present_count}</td>
+              <td className="py-3">
+                <Button variant="ghost" size="sm" className="gap-1.5" asChild>
+                  <Link href={`/teacher/dashboard/sessions/${item.session_id}/review`}>
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    Review
+                  </Link>
+                </Button>
+              </td>
             </tr>
           ))}
         </tbody>
