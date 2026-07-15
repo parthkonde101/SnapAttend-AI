@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -51,6 +51,7 @@ from app.services.attendance_export_service import build_attendance_export
 from app.services.attendance_review_service import AttendanceReviewService
 from app.services.attendance_session_service import AttendanceSessionService
 from app.services.attendance_verification_service import AttendanceVerificationService
+from app.services.device_lock_service import DEVICE_ALREADY_USED_MESSAGE, DeviceLockService
 
 router = APIRouter()
 
@@ -343,6 +344,7 @@ _MAX_MARK_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 @router.post("/mark", response_model=MarkAttendanceResponse)
 async def mark_attendance(
     file: UploadFile = File(...),
+    device_id: str | None = Form(default=None),
     db: Session = Depends(get_db),
     current_student: Student = Depends(get_current_student),
 ) -> MarkAttendanceResponse:
@@ -352,6 +354,15 @@ async def mark_attendance(
     Students may retry unlimited times while the session remains active —
     a failed attempt never writes a row, so it never consumes an
     opportunity to attend (see `AttendanceVerificationService`).
+
+    `device_id` (Milestone 6C, Part 1 — Temporary Device Lock): a random
+    UUID the frontend generates once and stores locally, sent with every
+    attendance attempt. Optional/nullable purely for backward
+    compatibility with any client that doesn't send it yet — when absent,
+    the device-lock check below is simply skipped for that request (no
+    lock check, no lock recorded), rather than blocking a legitimate
+    student on a technicality. See `app/services/device_lock_service.py`
+    for the actual same-device/different-student rule.
     """
     content_type = (file.content_type or "").lower()
     if content_type not in _ALLOWED_MARK_CONTENT_TYPES:
@@ -375,6 +386,19 @@ async def mark_attendance(
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active attendance session.")
 
+    # Device lock (Milestone 6C, Part 1): cheap request-level gate, same
+    # spirit as AttendanceVerificationService.already_marked's early exit —
+    # no point running the AI pipeline against a photo whose outcome is
+    # already determined. Same device + same student is always allowed
+    # (covers accidental logout, app restart, browser refresh, logging back
+    # in); only a *different* student on an already-locked device is
+    # rejected, with a friendly explanation, before any verification runs.
+    device_lock_service = DeviceLockService(db)
+    if device_id and device_lock_service.is_blocked(
+        session_id=session.id, device_id=device_id, student_id=current_student.id
+    ):
+        return MarkAttendanceResponse(success=False, reason=DEVICE_ALREADY_USED_MESSAGE)
+
     # Diagnostics recording is a pure side effect: when disabled (the
     # production default), `recorder` stays None and verification runs
     # exactly as it would without this hook — no extra work, no
@@ -382,13 +406,22 @@ async def mark_attendance(
     recorder = AttendanceDiagnosticsRecorder() if is_diagnostics_enabled() else None
 
     verification_service = AttendanceVerificationService(db)
-    return verification_service.verify_and_record(
+    result = verification_service.verify_and_record(
         student=current_student,
         session=session,
         image_bytes=contents,
         storage_dir=Path(settings.UPLOAD_DIR),
         recorder=recorder,
     )
+
+    # Only a brand-new, successful verification creates the lock — never a
+    # failed attempt, and never "already_recorded" (that student's device
+    # relationship for this session was already established on their
+    # original success).
+    if result.success and device_id:
+        device_lock_service.record_lock(session_id=session.id, device_id=device_id, student_id=current_student.id)
+
+    return result
 
 
 # --- Legacy: generic session CRUD ----------------------------------------------

@@ -25,6 +25,7 @@ from app.models.attendance import Attendance
 from app.models.attendance_session import DEFAULT_SESSION_DURATION_SECONDS, AttendanceSession
 from app.models.student import Student
 from app.models.teacher import Teacher
+from app.services.device_lock_service import DeviceLockService
 
 # Characters chosen to avoid visual ambiguity on a projected classroom
 # display (e.g. no 0/O, 1/I/L) — unchanged from the pre-existing session
@@ -52,14 +53,26 @@ class AttendanceSessionService:
         client-side polling this keeps state accurate without a
         long-running worker process. Unchanged from the pre-existing
         session engine.
+
+        Milestone 6C addition: a session going inactive — by any path,
+        including this lazy natural-expiry one, not just an explicit
+        "End Session" click — is exactly when its temporary device locks
+        (see `app/services/device_lock_service.py`) must disappear. Nothing
+        about a device/student pairing should ever outlive the session it
+        was created in.
         """
         now = datetime.now(timezone.utc)
         stmt = select(AttendanceSession).where(
             AttendanceSession.is_active.is_(True), AttendanceSession.expires_at <= now
         )
-        for stale_session in self.db.scalars(stmt):
+        stale_sessions = list(self.db.scalars(stmt))
+        for stale_session in stale_sessions:
             stale_session.is_active = False
         self.db.commit()
+
+        device_lock_service = DeviceLockService(self.db)
+        for stale_session in stale_sessions:
+            device_lock_service.clear_locks_for_session(session_id=stale_session.id)
 
     def get_active_session(self) -> AttendanceSession | None:
         return self.db.scalar(select(AttendanceSession).where(AttendanceSession.is_active.is_(True)))
@@ -88,6 +101,7 @@ class AttendanceSessionService:
         self.expire_stale_sessions()
 
         previous = self.get_active_session()
+        previous_id = previous.id if previous is not None else None
         if previous is not None:
             previous.is_active = False
             self.db.flush()
@@ -112,6 +126,13 @@ class AttendanceSessionService:
         self.db.add(session)
         self.db.commit()
         self.db.refresh(session)
+
+        # The previous session (if any) was just superseded — that's an
+        # "end" for its temporary device locks too, per the same
+        # Milestone 6C rule as an explicit End Session / natural expiry.
+        if previous_id is not None:
+            DeviceLockService(self.db).clear_locks_for_session(session_id=previous_id)
+
         return session
 
     def end_session(self, teacher: Teacher) -> AttendanceSession:
@@ -124,6 +145,12 @@ class AttendanceSessionService:
         session.is_active = False
         self.db.commit()
         self.db.refresh(session)
+
+        # Milestone 6C: "When the teacher ends the attendance session,
+        # remove every temporary device lock for that session." — the next
+        # session always starts with zero locked devices.
+        DeviceLockService(self.db).clear_locks_for_session(session_id=session.id)
+
         return session
 
     def _generate_unique_session_code(self) -> str:

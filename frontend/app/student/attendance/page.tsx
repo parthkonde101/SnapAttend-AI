@@ -7,7 +7,8 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Info, Loader2, RotateCcw } from
 import { Button } from "@/components/ui/button";
 import { useActiveSession } from "@/hooks/use-attendance";
 import { useCamera, type CameraStatus } from "@/hooks/use-camera";
-import { uploadFile, ApiError } from "@/lib/api";
+import { uploadFileWithFields, ApiError } from "@/lib/api";
+import { getOrCreateDeviceId } from "@/lib/device";
 import { formatCountdown } from "@/lib/utils";
 import type { MarkAttendanceResponse } from "@/lib/types";
 
@@ -75,7 +76,14 @@ export default function StudentAttendancePage() {
     setUploadError(null);
     try {
       const blob = await (await fetch(photo)).blob();
-      const result = await uploadFile<MarkAttendanceResponse>("/api/v1/attendance/mark", blob, "attendance.jpg");
+      const deviceId = getOrCreateDeviceId();
+      const result = await uploadFileWithFields<MarkAttendanceResponse>(
+        "/api/v1/attendance/mark",
+        blob,
+        "attendance.jpg",
+        deviceId ? { device_id: deviceId } : {},
+        { authenticated: true }
+      );
       setWarnings(result.warnings);
 
       if (result.success) {
