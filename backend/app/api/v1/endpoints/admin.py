@@ -13,7 +13,9 @@ module's docstrings.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -26,6 +28,7 @@ from app.schemas.admin import (
     AdminSessionDeleteConfirmation,
     AdminSessionDeleteRequest,
     AdminSessionListItem,
+    AttendanceReportItem,
     DashboardStats,
     SimpleSuccessResponse,
     StudentAdminRead,
@@ -37,7 +40,22 @@ from app.schemas.admin import (
     TeacherUpdateRequest,
 )
 from app.schemas.attendance import AttendanceOverrideRequest, SessionReviewResponse, StudentAttendanceReviewItem
+from app.schemas.course import CourseCreateRequest, CourseRead, CourseUpdateRequest, TeacherCourseAssignRequest
+from app.schemas.panel import (
+    PanelCourseAssignRequest,
+    PanelCreateRequest,
+    PanelOverview,
+    PanelRead,
+    PanelUpdateRequest,
+)
+from app.schemas.student import ExcelImportSummary
+from app.services.admin_course_service import AdminCourseService, CourseAlreadyAssignedError, CourseCodeTakenError
 from app.services.admin_dashboard_service import AdminDashboardService
+from app.services.admin_panel_service import (
+    AdminPanelService,
+    CourseAlreadyAssignedToPanelError,
+    PanelNameTakenError,
+)
 from app.services.admin_session_service import AdminSessionService, InvalidDeleteConfirmationError
 from app.services.admin_student_service import AdminStudentService, StudentPrnTakenError
 from app.services.admin_teacher_service import (
@@ -46,7 +64,9 @@ from app.services.admin_teacher_service import (
     TeacherLoginIdTakenError,
 )
 from app.services.attendance_export_service import build_attendance_export
+from app.services.attendance_report_service import AttendanceReportService
 from app.services.attendance_review_service import AttendanceReviewService
+from app.services.excel_import_service import InvalidWorkbookError, import_students_excel
 
 router = APIRouter()
 
@@ -147,10 +167,15 @@ def delete_teacher(
 
 @router.get("/students", response_model=list[StudentAdminRead])
 def search_students(
-    query: str | None = None, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+    query: str | None = None,
+    panel_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
 ) -> list[StudentAdminRead]:
-    """`query` matches PRN, name, or division (case-insensitive substring) — see AdminStudentService.search_students."""
-    return AdminStudentService(db).search_students(query)
+    """`query` matches PRN, name, roll number, or division
+    (case-insensitive substring); `panel_id` narrows to one panel's roster
+    — see AdminStudentService.search_students."""
+    return AdminStudentService(db).search_students(query, panel_id=panel_id)
 
 
 @router.get("/students/{student_id}", response_model=StudentProfile)
@@ -196,13 +221,16 @@ def update_student(
 
 @router.post("/students/{student_id}/reset-password", response_model=SimpleSuccessResponse)
 def reset_student_password(
-    student_id: int,
-    payload: AdminPasswordResetRequest,
-    db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    student_id: int, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
 ) -> SimpleSuccessResponse:
+    """Reset a student's password to the administrator-issued default
+    (`Test@123`) and re-arm the mandatory change-password flow. Per the
+    "Extending the attendance system" spec, Part 4: students cannot
+    self-reset, and no password is ever exposed anywhere in this UI —
+    there is deliberately no way to set an arbitrary password here, unlike
+    the teacher reset action below."""
     try:
-        AdminStudentService(db).reset_password(student_id, payload.new_password)
+        AdminStudentService(db).reset_to_default_password(student_id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return SimpleSuccessResponse()
@@ -322,4 +350,221 @@ def export_admin_session(
         content=export.content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{export.filename}"'},
+    )
+
+
+# --- Course Management ("Extending the attendance system" spec, Part 1/7) ------
+
+
+@router.get("/courses", response_model=list[CourseRead])
+def list_courses(
+    include_archived: bool = True, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+) -> list[CourseRead]:
+    return AdminCourseService(db).list_courses(include_archived=include_archived)  # type: ignore[return-value]
+
+
+@router.post("/courses", response_model=CourseRead, status_code=status.HTTP_201_CREATED)
+def create_course(
+    payload: CourseCreateRequest, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+) -> CourseRead:
+    try:
+        return AdminCourseService(db).create_course(payload)  # type: ignore[return-value]
+    except CourseCodeTakenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Course code '{exc}' is already in use.") from exc
+
+
+@router.put("/courses/{course_id}", response_model=CourseRead)
+def update_course(
+    course_id: int,
+    payload: CourseUpdateRequest,
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
+) -> CourseRead:
+    try:
+        return AdminCourseService(db).update_course(course_id, payload)  # type: ignore[return-value]
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CourseCodeTakenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Course code '{exc}' is already in use.") from exc
+
+
+@router.delete("/courses/{course_id}", response_model=SimpleSuccessResponse)
+def delete_course(
+    course_id: int, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+) -> SimpleSuccessResponse:
+    try:
+        AdminCourseService(db).delete_course(course_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return SimpleSuccessResponse()
+
+
+@router.post("/teachers/{teacher_id}/courses", response_model=SimpleSuccessResponse)
+def assign_course_to_teacher(
+    teacher_id: int,
+    payload: TeacherCourseAssignRequest,
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
+) -> SimpleSuccessResponse:
+    try:
+        AdminCourseService(db).assign_course_to_teacher(teacher_id, payload.course_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CourseAlreadyAssignedError:
+        pass  # idempotent: already assigned is not an error from the UI's perspective
+    return SimpleSuccessResponse()
+
+
+@router.delete("/teachers/{teacher_id}/courses/{course_id}", response_model=SimpleSuccessResponse)
+def remove_course_from_teacher(
+    teacher_id: int, course_id: int, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+) -> SimpleSuccessResponse:
+    try:
+        AdminCourseService(db).remove_course_from_teacher(teacher_id, course_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return SimpleSuccessResponse()
+
+
+# --- Panel Management ("Extending the attendance system" spec, Part 2/7) -------
+
+
+@router.get("/panels", response_model=list[PanelRead])
+def list_admin_panels(db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)) -> list[PanelRead]:
+    return AdminPanelService(db).list_panels()  # type: ignore[return-value]
+
+
+@router.post("/panels", response_model=PanelRead, status_code=status.HTTP_201_CREATED)
+def create_panel(
+    payload: PanelCreateRequest, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+) -> PanelRead:
+    try:
+        return AdminPanelService(db).create_panel(payload)  # type: ignore[return-value]
+    except PanelNameTakenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Panel name '{exc}' is already in use.") from exc
+
+
+@router.get("/panels/{panel_id}", response_model=PanelOverview)
+def get_panel_overview(
+    panel_id: int, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+) -> PanelOverview:
+    try:
+        return AdminPanelService(db).get_overview(panel_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.put("/panels/{panel_id}", response_model=PanelRead)
+def update_panel(
+    panel_id: int,
+    payload: PanelUpdateRequest,
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
+) -> PanelRead:
+    try:
+        return AdminPanelService(db).update_panel(panel_id, payload)  # type: ignore[return-value]
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PanelNameTakenError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Panel name '{exc}' is already in use.") from exc
+
+
+@router.delete("/panels/{panel_id}", response_model=SimpleSuccessResponse)
+def delete_panel(
+    panel_id: int, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+) -> SimpleSuccessResponse:
+    try:
+        AdminPanelService(db).delete_panel(panel_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return SimpleSuccessResponse()
+
+
+@router.post("/panels/{panel_id}/courses", response_model=SimpleSuccessResponse)
+def assign_course_to_panel(
+    panel_id: int,
+    payload: PanelCourseAssignRequest,
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
+) -> SimpleSuccessResponse:
+    try:
+        AdminPanelService(db).assign_course_to_panel(panel_id, payload.course_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CourseAlreadyAssignedToPanelError:
+        pass  # idempotent, same posture as the teacher-course assignment route above
+    return SimpleSuccessResponse()
+
+
+@router.delete("/panels/{panel_id}/courses/{course_id}", response_model=SimpleSuccessResponse)
+def remove_course_from_panel(
+    panel_id: int, course_id: int, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+) -> SimpleSuccessResponse:
+    try:
+        AdminPanelService(db).remove_course_from_panel(panel_id, course_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return SimpleSuccessResponse()
+
+
+@router.get("/panels/{panel_id}/students", response_model=list[StudentAdminRead])
+def list_panel_students(
+    panel_id: int, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+) -> list[StudentAdminRead]:
+    try:
+        return AdminStudentService(db).search_students(None, panel_id=panel_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/panels/{panel_id}/import", response_model=ExcelImportSummary)
+async def import_panel_students(
+    panel_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
+) -> ExcelImportSummary:
+    """Student Import System (spec Part 3): upload an .xlsx roster
+    (Roll Number, PRN, Full Name — Batch optional) for this panel. New
+    PRNs become working accounts on the administrator-issued default
+    password (`Test@123`, forced to change on first login); existing PRNs
+    are updated; in-file duplicate PRNs are skipped; invalid rows are
+    reported individually. See app/services/excel_import_service.py."""
+    AdminPanelService(db).get_panel(panel_id)  # 404 before touching the file at all
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
+
+    try:
+        return import_students_excel(db, panel_id=panel_id, file_bytes=contents)
+    except InvalidWorkbookError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+# --- Attendance Filtering ("Extending the attendance system" spec, Part 6) -----
+
+
+@router.get("/attendance/report", response_model=list[AttendanceReportItem])
+def get_attendance_report(
+    course_id: int | None = None,
+    panel_id: int | None = None,
+    teacher_id: int | None = None,
+    student_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
+) -> list[AttendanceReportItem]:
+    """Every attendance record system-wide, filterable by Course, Panel,
+    Teacher, Date range, and/or Student — per the spec's Attendance
+    Filtering requirement. All filters are optional and combine with AND;
+    omitting all of them returns the full history."""
+    return AttendanceReportService(db).build_report(
+        course_id=course_id,
+        panel_id=panel_id,
+        teacher_id=teacher_id,
+        student_id=student_id,
+        date_from=date_from,
+        date_to=date_to,
     )

@@ -14,6 +14,7 @@ import { AdminModal } from "@/components/admin/admin-modal";
 import { deleteStudent, resetStudentPassword, searchStudents, updateStudent } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import type { StudentAdminRead } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 type ModalState =
   | { type: "edit"; student: StudentAdminRead }
@@ -62,7 +63,7 @@ export default function AdminStudentsPage() {
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by PRN, name, or division…"
+          placeholder="Search by PRN, roll number, name, or division…"
           className="pl-9"
         />
       </div>
@@ -91,10 +92,12 @@ export default function AdminStudentsPage() {
                 <thead>
                   <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="pb-3 pr-4 font-medium">PRN</th>
+                    <th className="pb-3 pr-4 font-medium">Roll No.</th>
                     <th className="pb-3 pr-4 font-medium">Name</th>
-                    <th className="pb-3 pr-4 font-medium">Division</th>
+                    <th className="pb-3 pr-4 font-medium">Panel</th>
                     <th className="pb-3 pr-4 font-medium">Registered</th>
                     <th className="pb-3 pr-4 font-medium">Attendance %</th>
+                    <th className="pb-3 pr-4 font-medium">Password</th>
                     <th className="pb-3 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -102,10 +105,23 @@ export default function AdminStudentsPage() {
                   {students.map((student) => (
                     <tr key={student.id}>
                       <td className="py-3 pr-4 font-mono">{student.prn}</td>
+                      <td className="py-3 pr-4 text-muted-foreground">{student.roll_number ?? "—"}</td>
                       <td className="py-3 pr-4 font-medium">{student.full_name}</td>
-                      <td className="py-3 pr-4 text-muted-foreground">{student.division ?? "—"}</td>
+                      <td className="py-3 pr-4 text-muted-foreground">{student.panel?.name ?? "—"}</td>
                       <td className="py-3 pr-4 text-muted-foreground">{formatDate(student.created_at)}</td>
                       <td className="py-3 pr-4 tabular-nums">{student.attendance_percentage}%</td>
+                      <td className="py-3 pr-4">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+                            student.password_changed
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                              : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                          )}
+                        >
+                          {student.password_changed ? "Set by student" : "Temporary (unchanged)"}
+                        </span>
+                      </td>
                       <td className="py-3">
                         <div className="flex flex-wrap gap-1">
                           <Button variant="ghost" size="icon" title="View Profile" aria-label="View Profile" asChild>
@@ -157,6 +173,7 @@ function EditStudentModal({
 }) {
   const [fullName, setFullName] = useState(student.full_name);
   const [prn, setPrn] = useState(student.prn);
+  const [rollNumber, setRollNumber] = useState(student.roll_number ?? "");
   const [division, setDivision] = useState(student.division ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -169,7 +186,12 @@ function EditStudentModal({
     }
     setIsSubmitting(true);
     try {
-      await updateStudent(student.id, { full_name: fullName.trim(), prn: prn.trim(), division: division.trim() || null });
+      await updateStudent(student.id, {
+        full_name: fullName.trim(),
+        prn: prn.trim(),
+        roll_number: rollNumber.trim() || null,
+        division: division.trim() || null,
+      });
       onSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to update student.");
@@ -193,6 +215,16 @@ function EditStudentModal({
         <div className="space-y-1.5">
           <Label htmlFor="edit-student-prn">PRN</Label>
           <Input id="edit-student-prn" value={prn} onChange={(e) => setPrn(e.target.value)} disabled={isSubmitting} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="edit-student-roll">Roll Number</Label>
+          <Input
+            id="edit-student-roll"
+            value={rollNumber}
+            onChange={(e) => setRollNumber(e.target.value)}
+            disabled={isSubmitting}
+            placeholder="Optional"
+          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="edit-student-division">Division</Label>
@@ -221,20 +253,15 @@ function ResetStudentPasswordModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit() {
     setError(null);
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
     setIsSubmitting(true);
     try {
-      await resetStudentPassword(student.id, password);
+      await resetStudentPassword(student.id);
       setSuccess(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to reset password.");
@@ -248,7 +275,10 @@ function ResetStudentPasswordModal({
       {success ? (
         <>
           <Alert>
-            <AlertDescription>Password reset successfully.</AlertDescription>
+            <AlertDescription>
+              Password reset to the administrator-issued default. This student must set a new password the next
+              time they log in.
+            </AlertDescription>
           </Alert>
           <div className="flex justify-end pt-1">
             <Button onClick={onDone}>Done</Button>
@@ -261,10 +291,10 @@ function ResetStudentPasswordModal({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          <div className="space-y-1.5">
-            <Label htmlFor="reset-student-password">New Password</Label>
-            <Input id="reset-student-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isSubmitting} />
-          </div>
+          <p className="text-sm text-muted-foreground">
+            This resets {student.full_name}&apos;s password to the administrator-issued default and requires them to
+            set a new one on their next login. Students cannot reset their own password — this is the only way.
+          </p>
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
               Cancel

@@ -104,6 +104,20 @@ class AttendanceVerificationService:
         if self.already_marked(student_id=student.id, session_id=session.id):
             return MarkAttendanceResponse(success=False, already_recorded=True, reason="Attendance already recorded.")
 
+        # Panel restriction ("Extending the attendance system" spec, Part 5):
+        # a session tied to a panel is only valid for students belonging to
+        # that panel. Sessions created before this migration have no
+        # `panel_id` at all and are left unrestricted, matching this
+        # milestone's "do not lose existing attendance records" / no
+        # retroactive enforcement posture. Checked before the AI pipeline
+        # runs — same cheap-early-exit rationale as the duplicate check
+        # above, and it must never consume the student's attempt budget.
+        if session.panel_id is not None and student.panel_id != session.panel_id:
+            return MarkAttendanceResponse(
+                success=False,
+                reason="This attendance session is not open to your panel.",
+            )
+
         if recorder:
             recorder.set_context(student_id=student.id, session_id=session.id)
 

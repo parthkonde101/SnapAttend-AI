@@ -53,6 +53,8 @@ class ActiveSessionInfo(BaseModel):
     session_id: int
     session_code: str
     marker: str | None = Field(default=None, description="Teacher-only. Never sent to students.")
+    course: str | None = None
+    panel: str | None = None
     created_at: datetime
     expires_at: datetime
     duration_seconds: int
@@ -73,6 +75,8 @@ class SessionHistoryItem(BaseModel):
     session_id: int
     session_code: str
     marker: str
+    course: str | None = None
+    panel: str | None = None
     created_at: datetime
     expires_at: datetime
     duration_seconds: int
@@ -99,10 +103,16 @@ class PhotoUploadResponse(BaseModel):
 
 
 class AttendanceSessionStartRequest(BaseModel):
-    """Body for POST /attendance/start-session. Optional — omitting
-    `duration_seconds` keeps the previous "just start a default session"
-    behavior working unchanged."""
+    """Body for POST /attendance/start-session. `course_id` and `panel_id`
+    are required — "Extending the attendance system" spec, Part 5: a
+    teacher must select a Course (from their own assigned courses), then a
+    Panel (assigned to that course), before a session can be created.
+    Attendance is then restricted to students in that panel — see
+    `AttendanceSessionService.start_session` and
+    `AttendanceVerificationService.verify_and_record`."""
 
+    course_id: int
+    panel_id: int
     duration_seconds: int | None = Field(
         default=None, description="One of 60, 120, 180, 300. Defaults to 120 (2 minutes) if omitted."
     )
@@ -126,6 +136,7 @@ class AttendanceRecordDetail(BaseModel):
     student_id: int
     prn: str
     full_name: str
+    roll_number: str | None = None
     marked_at: datetime
     verification_source: Literal["barcode", "ocr", "teacher_override", "none"] = "none"
 
@@ -155,6 +166,7 @@ class StudentAttendanceReviewItem(BaseModel):
     student_id: int
     prn: str
     full_name: str
+    roll_number: str | None = None
     status: Literal["present", "absent"]
     verification_source: Literal["barcode", "ocr", "teacher_override", "none"] = "none"
     marked_at: datetime | None = Field(default=None, description="When the underlying row was created, if any.")
@@ -173,6 +185,8 @@ class SessionReviewResponse(BaseModel):
 
     session_id: int
     marker: str
+    course: str | None = None
+    panel: str | None = None
     is_active: bool = Field(
         default=False,
         description="Whether the session is still open. The Excel export (see attendance_export_service.py) is "

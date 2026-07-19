@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     attendance_diagnostics,
     auth,
     diagnostics,
+    panels,
     registration,
     students,
     teachers,
@@ -23,4 +24,5 @@ api_router.include_router(diagnostics.router, prefix="/diagnostics", tags=["diag
 api_router.include_router(
     attendance_diagnostics.router, prefix="/attendance-diagnostics", tags=["attendance-diagnostics"]
 )
+api_router.include_router(panels.router, prefix="/panels", tags=["panels"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])

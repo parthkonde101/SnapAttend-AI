@@ -6,10 +6,19 @@ one only turns an already-finalized session into a static downloadable
 file. Reuses `AttendanceReviewService.build_session_review` for the roster
 so the export can never drift from what the teacher actually saw and
 overrode on the review page — same status field, same source of truth —
-but this module then deliberately drops every field except PRN, name, and
-final Present/Absent status before it ever reaches a cell. Per the export
-spec: no AI confidence, no marker detection, no diagnostics, no
-verification metadata. Only the final attendance state.
+but this module then deliberately drops every field except roll number,
+PRN, name, and final Present/Absent status before it ever reaches a cell.
+
+Per spec Part 14 ("Simplified Attendance Export"), the export contains
+*only* what faculty need for an official attendance record — Roll Number,
+PRN, Student Name, Attendance — sorted by Roll Number. No internal IDs, no
+timestamps, no panel/course names, no image paths, no AI confidence, no
+marker detection, no diagnostics, no verification metadata: a single
+clean, printable sheet, nothing else. (An earlier version of this export
+also emitted a "Session Summary" sheet with the session's internal ID and
+start/end timestamps — that sheet was removed entirely to satisfy this
+spec's explicit "no internal IDs, timestamps" requirement, not just
+trimmed.)
 """
 from __future__ import annotations
 
@@ -22,6 +31,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from app.core.sorting import roll_number_sort_key
 from app.models.attendance_session import AttendanceSession
 from app.services.attendance_review_service import AttendanceReviewService
 
@@ -30,7 +40,6 @@ _HEADER_FILL = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="
 _HEADER_ALIGNMENT = Alignment(horizontal="center", vertical="center")
 _HEADER_BORDER = Border(bottom=Side(style="thin", color="9CA3AF"))
 _CELL_ALIGNMENT = Alignment(horizontal="left", vertical="center")
-_LABEL_FONT = Font(bold=True)
 
 _MIN_COLUMN_WIDTH = 10
 _MAX_COLUMN_WIDTH = 48
@@ -77,62 +86,30 @@ def _autosize_columns(ws: Worksheet) -> None:
 
 
 def _build_attendance_sheet(wb: Workbook, review) -> None:
+    """Column set and ordering per spec Part 14 ("Simplified Attendance
+    Export"): Roll Number, PRN, Student Name, Attendance — nothing else —
+    sorted by Roll Number ascending, numeric-aware, so faculty receive the
+    sheet in the exact official classroom order.
+    """
     ws = wb.active
     ws.title = "Attendance"
 
-    ws.append(["PRN", "Student Name", "Attendance"])
-    _style_header_row(ws, num_columns=3)
+    ws.append(["Roll Number", "PRN", "Student Name", "Attendance"])
+    _style_header_row(ws, num_columns=4)
     ws.freeze_panes = "A2"
 
-    # Sort by PRN per spec — plain string sort on the field as stored
-    # (Student.prn), not a numeric coercion, since PRNs are an opaque
-    # alphanumeric identifier, not guaranteed to be purely numeric.
-    for student in sorted(review.students, key=lambda item: item.prn):
-        ws.append([student.prn, student.full_name, "Present" if student.status == "present" else "Absent"])
+    ordered_students = sorted(review.students, key=lambda item: roll_number_sort_key(item.roll_number))
+    for student in ordered_students:
+        ws.append(
+            [
+                student.roll_number or "",
+                student.prn,
+                student.full_name,
+                "Present" if student.status == "present" else "Absent",
+            ]
+        )
 
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        for cell in row:
-            cell.alignment = _CELL_ALIGNMENT
-
-    _autosize_columns(ws)
-
-
-def _build_summary_sheet(wb: Workbook, session: AttendanceSession, review, teacher_overrides: int) -> None:
-    ws = wb.create_sheet("Session Summary")
-
-    total_students = len(review.students)
-    rows: list[tuple[str, object]] = [
-        ("Session ID", session.id),
-        ("Date", session.created_at.strftime("%Y-%m-%d")),
-        ("Start Time", session.created_at.strftime("%H:%M:%S")),
-        # `expires_at` is the closest end-of-session timestamp this schema
-        # actually persists. It is exact for a session that ran to its
-        # scheduled expiry; for one a teacher ended early via "End
-        # Session", the model does not currently record that literal
-        # moment separately (see app/services/attendance_session_service.py
-        # — ending a session only flips `is_active`, it doesn't stamp a
-        # new timestamp), so this is the scheduled end time in that case,
-        # not necessarily the second the teacher clicked End. Flagged here
-        # in code rather than silently presented as exact; out of scope
-        # for this export-only milestone to change the session model to
-        # track a separate `ended_at`.
-        ("End Time", session.expires_at.strftime("%H:%M:%S")),
-        ("Teacher", session.teacher.full_name if session.teacher else "—"),
-        ("Total Students", total_students),
-        ("Present", review.present_count),
-        ("Absent", review.absent_count),
-        ("Teacher Overrides", teacher_overrides),
-    ]
-
-    ws.append(["Field", "Value"])
-    _style_header_row(ws, num_columns=2)
-    ws.freeze_panes = "A2"
-
-    for label, value in rows:
-        ws.append([label, value])
-
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        row[0].font = _LABEL_FONT
         for cell in row:
             cell.alignment = _CELL_ALIGNMENT
 
@@ -150,18 +127,13 @@ def build_attendance_export(db, session: AttendanceSession) -> AttendanceExport:
     against a still-active session before this is ever called.
     """
     review = AttendanceReviewService(db).build_session_review(session)
-    teacher_overrides = sum(1 for student in review.students if student.is_teacher_override)
 
     wb = Workbook()
     _build_attendance_sheet(wb, review)
-    _build_summary_sheet(wb, session, review, teacher_overrides)
 
     buffer = BytesIO()
     wb.save(buffer)
 
-    # Same `created_at` value the Session Summary sheet's "Date" row uses
-    # (see _build_summary_sheet) — the filename and the sheet can never
-    # disagree about what date this export is for.
     session_name = _sanitize_filename_part(session.session_code)
     date_str = session.created_at.strftime("%Y-%m-%d")
     filename = f"Attendance_{session_name}_{date_str}.xlsx"

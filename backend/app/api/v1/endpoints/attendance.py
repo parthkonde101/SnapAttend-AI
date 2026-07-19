@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_actor, get_current_student, get_current_teacher
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.sorting import roll_number_sort_key
 from app.diagnostics.attendance_recorder import AttendanceDiagnosticsRecorder
 from app.diagnostics.gating import is_diagnostics_enabled
 from app.models.attendance import Attendance
@@ -77,6 +78,8 @@ def _to_active_session_info(
         session_id=session.id,
         session_code=session.session_code,
         marker=session.marker if include_marker else None,
+        course=session.course.course_name if session.course else None,
+        panel=session.panel.name if session.panel else None,
         created_at=session.created_at,
         expires_at=session.expires_at,
         duration_seconds=session.duration_seconds,
@@ -87,20 +90,25 @@ def _to_active_session_info(
 
 @router.post("/start-session", response_model=ActiveSessionInfo, status_code=status.HTTP_201_CREATED)
 def start_session(
-    payload: AttendanceSessionStartRequest | None = None,
+    payload: AttendanceSessionStartRequest,
     db: Session = Depends(get_db),
     current_teacher: Teacher = Depends(get_current_teacher),
 ) -> ActiveSessionInfo:
-    """Start a new attendance session (default 2 minutes; teacher may
-    choose 1/2/3/5 minutes via `payload.duration_seconds`).
+    """Start a new attendance session against a Course and Panel the
+    teacher selected (default duration 2 minutes; teacher may choose
+    1/2/3/5 minutes via `payload.duration_seconds`).
 
     Only one session may be active system-wide. Any currently active
     session (regardless of which teacher opened it) is terminated first.
     """
     service = AttendanceSessionService(db)
-    duration = payload.duration_seconds if payload is not None else None
     try:
-        session = service.start_session(current_teacher, duration_seconds=duration)
+        session = service.start_session(
+            current_teacher,
+            course_id=payload.course_id,
+            panel_id=payload.panel_id,
+            duration_seconds=payload.duration_seconds,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -169,6 +177,8 @@ def get_session_history(
             session_id=s.id,
             session_code=s.session_code,
             marker=s.marker,
+            course=s.course.course_name if s.course else None,
+            panel=s.panel.name if s.panel else None,
             created_at=s.created_at,
             expires_at=s.expires_at,
             duration_seconds=s.duration_seconds,
@@ -196,20 +206,23 @@ def get_session_records(
 
     # Filtered to status='present' — see AttendanceSessionService.get_present_count
     # for why a row's mere existence no longer implies "currently present"
-    # since teacher overrides were added.
+    # since teacher overrides were added. Ordered by Roll Number ascending
+    # (spec Part 11 — Student Ordering, "Live attendance monitoring"),
+    # numeric-aware — not arrival order.
     stmt = (
         select(Attendance, Student)
         .join(Student, Attendance.student_id == Student.id)
         .where(Attendance.session_id == session_id, Attendance.status == "present")
-        .order_by(Attendance.marked_at.asc())
     )
-    rows = db.execute(stmt).all()
+    rows = list(db.execute(stmt).all())
+    rows.sort(key=lambda pair: roll_number_sort_key(pair[1].roll_number))
 
     records = [
         AttendanceRecordDetail(
             student_id=student.id,
             prn=student.prn,
             full_name=student.full_name,
+            roll_number=student.roll_number,
             marked_at=attendance.marked_at,
             verification_source=attendance.verification_source,  # type: ignore[arg-type]
         )

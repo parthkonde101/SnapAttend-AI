@@ -109,6 +109,14 @@ export function SessionReviewTable({
 }: SessionReviewTableProps) {
   const [pendingStudentId, setPendingStudentId] = useState<number | null>(null);
   const [enlargedStudentId, setEnlargedStudentId] = useState<number | null>(null);
+  // Spec Part 14 ("Attendance Review Filters"): purely a client-side view
+  // filter over the roster already in memory — no refetch, no reload, so
+  // switching tabs is instant. `students` itself (the full roster) stays
+  // untouched everywhere else in this component — the "newly marked"
+  // highlight/auto-scroll effect and the photo-prefetch effect both need
+  // to keep seeing every student regardless of which tab is selected, so
+  // only the two render blocks below read `filteredStudents`.
+  const [statusFilter, setStatusFilter] = useState<"all" | AttendanceStatus>("all");
   const [photoUrls, setPhotoUrls] = useState<Record<number, string>>({});
   const [photoErrors, setPhotoErrors] = useState<Record<number, boolean>>({});
   const [highlightedIds, setHighlightedIds] = useState<Set<number>>(new Set());
@@ -232,8 +240,25 @@ export function SessionReviewTable({
 
   const enlargedStudent = students.find((s) => s.student_id === enlargedStudentId) ?? null;
 
+  const presentCount = students.filter((item) => item.status === "present").length;
+  const absentCount = students.length - presentCount;
+  const filteredStudents =
+    statusFilter === "all" ? students : students.filter((item) => item.status === statusFilter);
+
   return (
     <>
+      <StatusFilterBar
+        value={statusFilter}
+        onChange={setStatusFilter}
+        allCount={students.length}
+        presentCount={presentCount}
+        absentCount={absentCount}
+      />
+
+      {filteredStudents.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">No students match this filter.</p>
+      ) : (
+        <>
       {/* Milestone 7B: single scroll container shared by both the desktop
           table and the mobile compact list below, so the near-bottom
           auto-scroll effect above works regardless of which one is
@@ -247,6 +272,7 @@ export function SessionReviewTable({
             <thead className="sticky top-0 z-10 bg-background">
               <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Photo</th>
+                <th className="py-3 pr-4 font-medium">Roll No.</th>
                 <th className="py-3 pr-4 font-medium">Student</th>
                 <th className="py-3 pr-4 font-medium">Attendance</th>
                 <th className="py-3 pr-4 font-medium">Verification</th>
@@ -255,7 +281,7 @@ export function SessionReviewTable({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {students.map((item) => {
+              {filteredStudents.map((item) => {
                 const isPending = pendingStudentId === item.student_id;
                 const photoUrl = photoUrls[item.student_id];
                 const photoFailed = photoErrors[item.student_id];
@@ -272,6 +298,7 @@ export function SessionReviewTable({
                         onEnlarge={() => setEnlargedStudentId(item.student_id)}
                       />
                     </td>
+                    <td className="py-2 pr-4 text-muted-foreground">{item.roll_number ?? "—"}</td>
                     <td className="py-2 pr-4">
                       <div className="font-medium">{item.full_name}</div>
                       <div className="font-mono text-xs text-muted-foreground">{item.prn}</div>
@@ -305,7 +332,7 @@ export function SessionReviewTable({
             rows instead — photo/name/PRN stay primary, verification detail
             drops to a single de-emphasized line, actions move below. */}
         <div className="divide-y divide-border sm:hidden">
-          {students.map((item) => {
+          {filteredStudents.map((item) => {
             const isPending = pendingStudentId === item.student_id;
             const photoUrl = photoUrls[item.student_id];
             const photoFailed = photoErrors[item.student_id];
@@ -325,7 +352,10 @@ export function SessionReviewTable({
                     onEnlarge={() => setEnlargedStudentId(item.student_id)}
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{item.full_name}</div>
+                    <div className="truncate font-medium">
+                      {item.roll_number && <span className="mr-1.5 text-muted-foreground">{item.roll_number}</span>}
+                      {item.full_name}
+                    </div>
                     <div className="font-mono text-xs text-muted-foreground">{item.prn}</div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <StatusBadge status={item.status} />
@@ -359,6 +389,8 @@ export function SessionReviewTable({
           })}
         </div>
       </div>
+        </>
+      )}
 
       {enlargedStudent && photoUrls[enlargedStudent.student_id] && (
         <EnlargedPhotoModal
@@ -411,6 +443,68 @@ function PhotoThumb({
   return (
     <div className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground">
       <ImageOff className="h-5 w-5" />
+    </div>
+  );
+}
+
+const STATUS_FILTERS: { key: "all" | AttendanceStatus; label: string }[] = [
+  { key: "all", label: "All Students" },
+  { key: "present", label: "Present" },
+  { key: "absent", label: "Absent" },
+];
+
+/** Spec Part 14 ("Attendance Review Filters"): three tabs — All Students,
+ * Present, Absent — each with a live count, so a teacher can jump straight
+ * to the students they still need to check without scrolling past the
+ * rest of the class. Purely a view filter over data already in memory
+ * (see `statusFilter` in SessionReviewTable), so switching tabs is
+ * instant — no reload, no refetch. */
+function StatusFilterBar({
+  value,
+  onChange,
+  allCount,
+  presentCount,
+  absentCount,
+}: {
+  value: "all" | AttendanceStatus;
+  onChange: (value: "all" | AttendanceStatus) => void;
+  allCount: number;
+  presentCount: number;
+  absentCount: number;
+}) {
+  const counts: Record<"all" | AttendanceStatus, number> = {
+    all: allCount,
+    present: presentCount,
+    absent: absentCount,
+  };
+
+  return (
+    <div className="mb-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Filter students by attendance status">
+      {STATUS_FILTERS.map((filter) => {
+        const isActive = value === filter.key;
+        return (
+          <Button
+            key={filter.key}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            variant={isActive ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => onChange(filter.key)}
+            className="gap-1.5"
+          >
+            {filter.label}
+            <span
+              className={cn(
+                "rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+                isActive ? "bg-background/60" : "bg-muted text-muted-foreground"
+              )}
+            >
+              {counts[filter.key]}
+            </span>
+          </Button>
+        );
+      })}
     </div>
   );
 }

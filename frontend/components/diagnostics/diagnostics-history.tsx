@@ -157,7 +157,7 @@ export function DiagnosticsHistory() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search PRN, name, or date"
-            className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none"
+            className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-9 pr-3 text-base text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none sm:text-sm"
           />
         </div>
 

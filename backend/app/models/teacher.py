@@ -26,6 +26,22 @@ class Teacher(Base):
     # `session.teacher.course` — a session has no course field of its own).
     course: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
+    # --- Teacher <-> Course many-to-many (replaces the single `course`
+    # column above as the source of truth) --------------------------------
+    # A teacher may now be assigned any number of courses via the
+    # `teacher_courses` join table (see app/models/teacher_course.py).
+    # `course` itself is left in place, unused by any new code path, so
+    # nothing that already reads it (e.g. historical session displays with
+    # no course_id of their own) breaks.
+    # Read-only convenience accessor — every write goes through explicit
+    # `TeacherCourse` row creation in `AdminCourseService`/
+    # `AdminTeacherService`, never through appending to this collection, so
+    # this is marked `viewonly=True` to keep that the one, unambiguous
+    # write path.
+    courses: Mapped[list["Course"]] = relationship(
+        secondary="teacher_courses", back_populates="teachers", viewonly=True
+    )
+
     attendance_sessions: Mapped[list["AttendanceSession"]] = relationship(
         back_populates="teacher", cascade="all, delete-orphan"
     )

@@ -23,8 +23,10 @@ from sqlalchemy.orm import Session
 from app.ai.attendance_config import MARKER_ALPHABET
 from app.models.attendance import Attendance
 from app.models.attendance_session import DEFAULT_SESSION_DURATION_SECONDS, AttendanceSession
+from app.models.panel_course import PanelCourse
 from app.models.student import Student
 from app.models.teacher import Teacher
+from app.models.teacher_course import TeacherCourse
 from app.services.device_lock_service import DeviceLockService
 
 # Characters chosen to avoid visual ambiguity on a projected classroom
@@ -92,13 +94,52 @@ class AttendanceSessionService:
     def get_total_registered_students(self) -> int:
         return int(self.db.scalar(select(func.count(Student.id))) or 0)
 
+    def get_total_panel_students(self, panel_id: int) -> int:
+        return int(self.db.scalar(select(func.count(Student.id)).where(Student.panel_id == panel_id)) or 0)
+
+    # --- Session Creation Workflow (Course -> Panel -> Session) -------------
+    def _assert_teacher_owns_course(self, teacher: Teacher, course_id: int) -> None:
+        link = self.db.scalar(
+            select(TeacherCourse).where(TeacherCourse.teacher_id == teacher.id, TeacherCourse.course_id == course_id)
+        )
+        if link is None:
+            raise ValueError("You are not assigned to this course. Select one of your assigned courses.")
+
+    def _assert_panel_assigned_to_course(self, panel_id: int, course_id: int) -> None:
+        link = self.db.scalar(
+            select(PanelCourse).where(PanelCourse.panel_id == panel_id, PanelCourse.course_id == course_id)
+        )
+        if link is None:
+            raise ValueError("This panel is not assigned to the selected course.")
+
     # --- Lifecycle ---------------------------------------------------------
-    def start_session(self, teacher: Teacher, *, duration_seconds: int | None = None) -> AttendanceSession:
+    def start_session(
+        self,
+        teacher: Teacher,
+        *,
+        course_id: int,
+        panel_id: int,
+        duration_seconds: int | None = None,
+    ) -> AttendanceSession:
         """Start a new attendance session, terminating any currently active
         one first (only one may be active system-wide). Generates both the
         legacy `session_code` and the new verification `marker`.
+
+        `course_id`/`panel_id` are mandatory per the "Extending the
+        attendance system" spec's Session Creation Workflow: Step 1 select
+        a Course the teacher is actually assigned to (`TeacherCourse`),
+        Step 2 select a Panel assigned to that course (`PanelCourse`) — both
+        validated here, not just filtered client-side, so a teacher can
+        never start a session for a course/panel combination they weren't
+        actually offered. The session then permanently stores both, which
+        is what makes attendance restriction (see
+        `AttendanceVerificationService.verify_and_record`) and cross-session
+        reporting (see `AttendanceReportService`) possible.
         """
         self.expire_stale_sessions()
+
+        self._assert_teacher_owns_course(teacher, course_id)
+        self._assert_panel_assigned_to_course(panel_id, course_id)
 
         previous = self.get_active_session()
         previous_id = previous.id if previous is not None else None
@@ -119,6 +160,8 @@ class AttendanceSessionService:
             session_code=code,
             marker=marker,
             teacher_id=teacher.id,
+            course_id=course_id,
+            panel_id=panel_id,
             duration_seconds=duration,
             expires_at=now + timedelta(seconds=duration),
             is_active=True,

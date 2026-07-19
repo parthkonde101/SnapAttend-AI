@@ -1,4 +1,6 @@
-"""Administrator management of Student accounts (Milestone 7A).
+"""Administrator management of Student accounts (Milestone 7A; extended by
+"Extending the attendance system" spec Parts 3/4 — Student Import System +
+Student Password Reset).
 
 Search, profile (registration details + attendance summary + course-wise
 breakdown + full history), edit, password reset, and a genuinely complete
@@ -22,9 +24,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_password
+from app.core.sorting import roll_number_sort_key
 from app.diagnostics.attendance_store import attendance_diagnostics_store
 from app.models.attendance import Attendance
 from app.models.attendance_session import AttendanceSession
+from app.models.course import Course
 from app.models.student import Student
 from app.models.teacher import Teacher
 from app.schemas.admin import (
@@ -34,6 +38,7 @@ from app.schemas.admin import (
     StudentProfile,
     StudentUpdateRequest,
 )
+from app.services.excel_import_service import DEFAULT_STUDENT_PASSWORD
 
 
 class StudentPrnTakenError(Exception):
@@ -71,22 +76,43 @@ class AdminStudentService:
             division=student.division,
             created_at=student.created_at,
             attendance_percentage=self._attendance_percentage(student.id, total_sessions),
+            panel=student.panel,  # type: ignore[arg-type]
+            roll_number=student.roll_number,
+            batch=student.batch,
+            is_active=student.is_active,
+            password_changed=student.password_changed,
         )
 
     # --- List / search -----------------------------------------------------
-    def search_students(self, query: str | None = None) -> list[StudentAdminRead]:
-        """Search by PRN, name, or division — a single `query` string
-        matched against all three (case-insensitive substring), per the
-        milestone's "Search by: PRN, Name, Division" — one search box, not
-        three separate fields, matching how every other search in this
-        product already behaves (e.g. registration diagnostics' `search`)."""
-        stmt = select(Student).order_by(Student.full_name.asc())
+    def search_students(self, query: str | None = None, *, panel_id: int | None = None) -> list[StudentAdminRead]:
+        """Search by PRN, name, roll number, or division — a single `query`
+        string matched against all four (case-insensitive substring),
+        extending the milestone's original "Search by: PRN, Name,
+        Division" now that roll numbers exist. `panel_id` narrows the list
+        to one panel — used by the panel detail page's Students tab.
+
+        Ordered by Roll Number ascending (spec Part 11 — Student Ordering),
+        numeric-aware via `roll_number_sort_key` — not a plain DB-level
+        `ORDER BY`, since Postgres would sort the string column
+        lexicographically ("10" before "2"). Student rosters are small
+        enough that sorting in Python after the fetch is simplest and
+        correct; this is the one place every "list of students" screen in
+        the admin surface (Student Management, and Panel student lists via
+        `panel_id`) ultimately goes through.
+        """
+        stmt = select(Student)
         if query:
             like = f"%{query.strip()}%"
             stmt = stmt.where(
-                Student.prn.ilike(like) | Student.full_name.ilike(like) | Student.division.ilike(like)
+                Student.prn.ilike(like)
+                | Student.full_name.ilike(like)
+                | Student.division.ilike(like)
+                | Student.roll_number.ilike(like)
             )
+        if panel_id is not None:
+            stmt = stmt.where(Student.panel_id == panel_id)
         students = list(self.db.scalars(stmt))
+        students.sort(key=lambda s: roll_number_sort_key(s.roll_number))
         total_sessions = self._total_session_count()
         return [self._to_read(s, total_sessions) for s in students]
 
@@ -114,7 +140,7 @@ class AdminStudentService:
         history = [
             StudentAttendanceHistoryItem(
                 session_id=session.id,
-                course=teacher.course,
+                course=session.course.course_name if session.course else teacher.course,
                 teacher_name=teacher.full_name,
                 date=session.created_at,
                 status=attendance.status,  # type: ignore[arg-type]
@@ -124,17 +150,26 @@ class AdminStudentService:
             for attendance, session, teacher in rows
         ]
 
-        # Course-wise breakdown: "course" is the teacher's course (no
-        # separate enrollment table exists — see StudentCourseAttendance's
-        # docstring). A course's total is every session any teacher of that
-        # course ever started, system-wide, not just ones this student
-        # attended — matching how overall attendance % is computed above.
+        # Course-wise breakdown: prefers each session's own `course_id`
+        # (Course entity) now that sessions carry one; falls back to the
+        # teacher's deprecated free-text `course` for historical sessions
+        # that predate this migration. A course's total is every session
+        # system-wide that resolved to that course name, not just ones this
+        # student attended — matching how overall attendance % is computed
+        # above.
+        course_id_to_name = {c.id: c.course_name for c in self.db.scalars(select(Course))}
+        all_session_rows = list(
+            self.db.execute(
+                select(AttendanceSession.course_id, Teacher.course)
+                .select_from(AttendanceSession)
+                .join(Teacher, AttendanceSession.teacher_id == Teacher.id)
+            )
+        )
         course_totals: dict[str, int] = {}
-        for course, in self.db.execute(
-            select(Teacher.course).join(AttendanceSession, AttendanceSession.teacher_id == Teacher.id)
-        ):
-            if course:
-                course_totals[course] = course_totals.get(course, 0) + 1
+        for course_id, legacy_course in all_session_rows:
+            resolved = course_id_to_name.get(course_id) if course_id else legacy_course
+            if resolved:
+                course_totals[resolved] = course_totals.get(resolved, 0) + 1
 
         course_present: dict[str, int] = {}
         for item in history:
@@ -184,15 +219,30 @@ class AdminStudentService:
             student.full_name = payload.full_name
         if payload.division is not None:
             student.division = payload.division
+        if payload.panel_id is not None:
+            student.panel_id = payload.panel_id
+        if payload.roll_number is not None:
+            student.roll_number = payload.roll_number
+        if payload.batch is not None:
+            student.batch = payload.batch
 
         self.db.add(student)
         self.db.commit()
         self.db.refresh(student)
         return self._to_read(student, self._total_session_count())
 
-    def reset_password(self, student_id: int, new_password: str) -> None:
+    def reset_to_default_password(self, student_id: int) -> None:
+        """Admin "Reset Password" action (spec Part 4): resets to the
+        administrator-issued default (`Test@123`, the same one Excel import
+        uses) and re-arms the forced change-password flow — the student
+        sees the mandatory Change Password screen again on next login. This
+        is deliberately the *only* way a student's password gets reset:
+        there is no way to choose an arbitrary password from the admin UI,
+        and the password itself is never exposed anywhere — see this
+        module's spec-derived rationale in the endpoint docstring."""
         student = self.get_student(student_id)
-        student.password_hash = hash_password(new_password)
+        student.password_hash = hash_password(DEFAULT_STUDENT_PASSWORD)
+        student.password_changed = False
         self.db.add(student)
         self.db.commit()
 

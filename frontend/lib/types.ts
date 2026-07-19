@@ -16,6 +16,8 @@ export interface Student {
   prn: string;
   full_name: string;
   created_at: string;
+  /** False forces the mandatory change-password screen. See hooks/use-auth.ts. */
+  password_changed: boolean;
 }
 
 export interface Teacher {
@@ -23,6 +25,104 @@ export interface Teacher {
   teacher_id: string;
   full_name: string;
   created_at: string;
+}
+
+// --- Academic Panels: Courses + Panels ("Extending the attendance system") --
+
+export interface CourseRead {
+  id: number;
+  course_code: string | null;
+  course_name: string;
+  created_at: string;
+  is_archived: boolean;
+}
+
+export interface CourseCreateRequest {
+  course_code: string;
+  course_name: string;
+}
+
+export interface CourseUpdateRequest {
+  course_code?: string;
+  course_name?: string;
+  is_archived?: boolean;
+}
+
+export interface TeacherCourseAssignRequest {
+  course_id: number;
+}
+
+export interface PanelRead {
+  id: number;
+  name: string;
+  academic_year: string | null;
+  created_at: string;
+}
+
+export interface PanelCreateRequest {
+  name: string;
+  academic_year?: string | null;
+}
+
+export interface PanelUpdateRequest {
+  name: string;
+  academic_year?: string | null;
+}
+
+export interface PanelCourseAssignRequest {
+  course_id: number;
+}
+
+export interface PanelOverview {
+  panel: PanelRead;
+  courses: CourseRead[];
+  student_count: number;
+}
+
+// --- Student Password Reset / Self-service change ---------------------------
+
+export interface StudentChangePasswordRequest {
+  current_password: string;
+  new_password: string;
+}
+
+// --- Student Import System (Excel roster upload) ----------------------------
+
+export interface ImportRowError {
+  row_number: number;
+  message: string;
+}
+
+export interface ExcelImportSummary {
+  imported: number;
+  updated: number;
+  skipped: number;
+  errors: ImportRowError[];
+}
+
+// --- Attendance Filtering -----------------------------------------------------
+
+export interface AttendanceReportItem {
+  session_id: number;
+  date: string;
+  course: string | null;
+  panel: string | null;
+  teacher_name: string;
+  student_id: number;
+  student_prn: string;
+  student_name: string;
+  student_roll_number: string | null;
+  status: AttendanceStatus;
+  marked_at: string | null;
+}
+
+export interface AttendanceReportFilters {
+  course_id?: number;
+  panel_id?: number;
+  teacher_id?: number;
+  student_id?: number;
+  date_from?: string;
+  date_to?: string;
 }
 
 // --- Administrator System (Milestone 7A) ------------------------------------
@@ -40,6 +140,7 @@ export interface RecentActivityItem {
   student_name: string;
   student_prn: string;
   course: string | null;
+  panel: string | null;
   teacher_name: string;
   status: AttendanceStatus;
   marked_at: string;
@@ -59,6 +160,7 @@ export interface TeacherAdminRead {
   teacher_id: string;
   full_name: string;
   course: string | null;
+  courses: CourseRead[];
   created_at: string;
   session_count: number;
 }
@@ -67,6 +169,7 @@ export interface TeacherCreateRequest {
   full_name: string;
   teacher_id: string;
   course?: string | null;
+  course_ids?: number[];
   password: string;
 }
 
@@ -74,6 +177,7 @@ export interface TeacherUpdateRequest {
   full_name?: string;
   teacher_id?: string;
   course?: string | null;
+  course_ids?: number[];
 }
 
 export interface AdminPasswordResetRequest {
@@ -87,12 +191,20 @@ export interface StudentAdminRead {
   division: string | null;
   created_at: string;
   attendance_percentage: number;
+  panel: PanelRead | null;
+  roll_number: string | null;
+  batch: string | null;
+  is_active: boolean;
+  password_changed: boolean;
 }
 
 export interface StudentUpdateRequest {
   full_name?: string;
   prn?: string;
   division?: string | null;
+  panel_id?: number | null;
+  roll_number?: string | null;
+  batch?: string | null;
 }
 
 export interface StudentCourseAttendance {
@@ -125,6 +237,7 @@ export interface StudentProfile {
 export interface AdminSessionListItem {
   session_id: number;
   course: string | null;
+  panel: string | null;
   teacher_id: number;
   teacher_name: string;
   date: string;
@@ -163,11 +276,21 @@ export interface ActiveSessionInfo {
   session_code: string;
   /** Teacher-only — never sent to students. See backend `ActiveSessionInfo`. */
   marker: string | null;
+  course: string | null;
+  panel: string | null;
   created_at: string;
   expires_at: string;
   duration_seconds: number;
   remaining_seconds: number;
   present_count: number;
+}
+
+/** Body for POST /attendance/start-session — course_id and panel_id are
+ * required (Session Creation Workflow: Course -> Panel -> Session). */
+export interface AttendanceSessionStartRequest {
+  course_id: number;
+  panel_id: number;
+  duration_seconds?: number;
 }
 
 export interface ActiveSessionResponse {
@@ -181,6 +304,8 @@ export interface SessionHistoryItem {
   session_id: number;
   session_code: string;
   marker: string;
+  course: string | null;
+  panel: string | null;
   created_at: string;
   expires_at: string;
   duration_seconds: number;
@@ -211,6 +336,7 @@ export interface AttendanceRecordDetail {
   student_id: number;
   prn: string;
   full_name: string;
+  roll_number: string | null;
   marked_at: string;
   verification_source: AttendanceVerificationSource;
 }
@@ -236,6 +362,7 @@ export interface StudentAttendanceReviewItem {
   student_id: number;
   prn: string;
   full_name: string;
+  roll_number: string | null;
   status: AttendanceStatus;
   verification_source: AttendanceVerificationSource;
   marked_at: string | null;
@@ -252,6 +379,8 @@ export interface StudentAttendanceReviewItem {
 export interface SessionReviewResponse {
   session_id: number;
   marker: string;
+  course: string | null;
+  panel: string | null;
   /** Whether the session is still open — the Excel export is only available once this is false. */
   is_active: boolean;
   /** Live session countdown, in seconds. 0 once ended. */

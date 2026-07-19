@@ -14,6 +14,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.attendance import ActiveSessionInfo
+from app.schemas.course import CourseRead
+from app.schemas.panel import PanelRead
 
 # --- Shared -----------------------------------------------------------------
 
@@ -56,6 +58,7 @@ class RecentActivityItem(BaseModel):
     student_name: str
     student_prn: str
     course: str | None
+    panel: str | None = None
     teacher_name: str
     status: Literal["present", "absent"]
     marked_at: datetime
@@ -83,7 +86,10 @@ class TeacherAdminRead(BaseModel):
     id: int
     teacher_id: str
     full_name: str
-    course: str | None
+    course: str | None = Field(default=None, description="Deprecated free-text field. See `courses` below.")
+    courses: list[CourseRead] = Field(
+        default_factory=list, description="Courses assigned via TeacherCourse — the source of truth going forward."
+    )
     created_at: datetime
     session_count: int = Field(..., description="How many attendance sessions this teacher has ever started.")
 
@@ -91,7 +97,8 @@ class TeacherAdminRead(BaseModel):
 class TeacherCreateRequest(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=150)
     teacher_id: str = Field(..., min_length=1, max_length=50, description="Login ID.")
-    course: str | None = Field(default=None, max_length=150)
+    course: str | None = Field(default=None, max_length=150, description="Deprecated. Use course_ids.")
+    course_ids: list[int] = Field(default_factory=list, description="Courses to assign on creation.")
     password: str = Field(..., min_length=8, max_length=128)
 
 
@@ -99,11 +106,15 @@ class TeacherUpdateRequest(BaseModel):
     """All fields optional — an edit only ever changes what the admin
     actually touched. Password is deliberately excluded; that's the
     separate Reset Password action below, matching the milestone's
-    distinct "Edit" vs "Reset Password" row actions."""
+    distinct "Edit" vs "Reset Password" row actions. `course_ids`, when
+    provided, replaces the teacher's entire assigned-course set in one call
+    (not a partial add/remove) — matching how every other admin edit form
+    in this codebase submits its full current state."""
 
     full_name: str | None = Field(default=None, min_length=1, max_length=150)
     teacher_id: str | None = Field(default=None, min_length=1, max_length=50)
     course: str | None = Field(default=None, max_length=150)
+    course_ids: list[int] | None = Field(default=None, description="If provided, replaces assigned courses.")
 
 
 class AdminPasswordResetRequest(BaseModel):
@@ -136,12 +147,22 @@ class StudentAdminRead(BaseModel):
     division: str | None
     created_at: datetime
     attendance_percentage: float = Field(..., ge=0, le=100)
+    panel: PanelRead | None = None
+    roll_number: str | None = None
+    batch: str | None = None
+    is_active: bool = True
+    password_changed: bool = Field(
+        default=True, description="False means this account is still on the administrator-issued default password."
+    )
 
 
 class StudentUpdateRequest(BaseModel):
     full_name: str | None = Field(default=None, min_length=1, max_length=150)
     prn: str | None = Field(default=None, min_length=1, max_length=50)
     division: str | None = Field(default=None, max_length=50)
+    panel_id: int | None = Field(default=None, description="Reassign this student to a different panel.")
+    roll_number: str | None = Field(default=None, max_length=50)
+    batch: str | None = Field(default=None, max_length=50)
 
 
 class StudentCourseAttendance(BaseModel):
@@ -191,6 +212,7 @@ class AdminSessionListItem(BaseModel):
 
     session_id: int
     course: str | None
+    panel: str | None = None
     teacher_id: int
     teacher_name: str
     date: datetime
@@ -221,3 +243,25 @@ class AdminSessionDeleteRequest(BaseModel):
     itself refuses to run the transaction without it, not just the UI."""
 
     confirmation: str = Field(..., description='Must be exactly "DELETE".')
+
+
+# --- Attendance Filtering (spec Part 6) -------------------------------------
+
+
+class AttendanceReportItem(BaseModel):
+    """One row in the cross-session attendance report — GET
+    /admin/attendance/report, filterable by course/panel/teacher/date/
+    student. Every session permanently stores its teacher/course/panel, so
+    this is a plain filtered join, not a recomputation."""
+
+    session_id: int
+    date: datetime
+    course: str | None
+    panel: str | None
+    teacher_name: str
+    student_id: int
+    student_prn: str
+    student_name: str
+    student_roll_number: str | None = None
+    status: Literal["present", "absent"]
+    marked_at: datetime | None

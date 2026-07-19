@@ -6,11 +6,12 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Info, Loader2, RotateCcw } from
 
 import { Button } from "@/components/ui/button";
 import { useActiveSession } from "@/hooks/use-attendance";
+import { useCurrentUser } from "@/hooks/use-auth";
 import { useCamera, type CameraStatus } from "@/hooks/use-camera";
 import { uploadFileWithFields, ApiError } from "@/lib/api";
 import { getOrCreateDeviceId } from "@/lib/device";
 import { formatCountdown } from "@/lib/utils";
-import type { MarkAttendanceResponse } from "@/lib/types";
+import type { MarkAttendanceResponse, Student } from "@/lib/types";
 
 type CaptureStep = "camera" | "preview" | "uploading" | "success" | "already-marked";
 
@@ -25,6 +26,12 @@ type CaptureStep = "camera" | "preview" | "uploading" | "success" | "already-mar
  */
 export default function StudentAttendancePage() {
   const router = useRouter();
+  // Reachable directly by URL, not just via the dashboard button — this
+  // call's redirect side effect (see hooks/use-auth.ts) is what keeps the
+  // mandatory change-password screen genuinely unbypassable for a student
+  // who still has `password_changed === false`, not just a dashboard-only
+  // gate. The fetched profile itself isn't otherwise used on this page.
+  useCurrentUser<Student>("student", "/api/v1/students/me");
   const { isActive, secondsLeft, isLoading: isSessionLoading } = useActiveSession();
   const { videoRef, status: cameraStatus, error: cameraError, start, stop, capture } = useCamera();
 

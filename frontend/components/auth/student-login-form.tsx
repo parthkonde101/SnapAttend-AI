@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
@@ -69,15 +68,7 @@ export function StudentLoginForm() {
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="password">Password</Label>
-          <Link
-            href="/student/forgot-password"
-            className="text-xs font-medium text-primary underline-offset-4 hover:underline"
-          >
-            Forgot password?
-          </Link>
-        </div>
+        <Label htmlFor="password">Password</Label>
         <Input
           id="password"
           name="password"
@@ -96,10 +87,8 @@ export function StudentLoginForm() {
       </Button>
 
       <p className="text-center text-sm text-muted-foreground">
-        Don&apos;t have an account?{" "}
-        <Link href="/student/register" className="font-medium text-primary underline-offset-4 hover:underline">
-          Register
-        </Link>
+        Your account is created by your institution&apos;s administrator. Contact them if you don&apos;t have login
+        details yet.
       </p>
     </form>
   );

@@ -60,7 +60,17 @@ function TeacherSessionPageContent() {
         ? requestedDuration
         : undefined;
 
-      apiRequest("/api/v1/attendance/start-session", { method: "POST", body: { duration_seconds: duration } })
+      const courseId = Number(searchParams.get("course_id"));
+      const panelId = Number(searchParams.get("panel_id"));
+      if (!courseId || !panelId) {
+        setStartError("No course/panel was selected. Go back to the dashboard and pick a course and panel first.");
+        return;
+      }
+
+      apiRequest("/api/v1/attendance/start-session", {
+        method: "POST",
+        body: { course_id: courseId, panel_id: panelId, duration_seconds: duration },
+      })
         .then(() => {
           setHasEnsuredSession(true);
           refetch();
@@ -216,7 +226,12 @@ function TeacherSessionPageContent() {
                 <ul className="divide-y divide-white/10">
                   {records.records.map((record) => (
                     <li key={record.student_id} className="flex items-center justify-between py-2 text-sm text-white/80">
-                      <span>{record.full_name}</span>
+                      <span className="flex items-center gap-2">
+                        {record.roll_number && (
+                          <span className="font-mono text-xs text-white/40">{record.roll_number}</span>
+                        )}
+                        {record.full_name}
+                      </span>
                       <span className="font-mono text-xs text-white/40">
                         {new Date(record.marked_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                       </span>

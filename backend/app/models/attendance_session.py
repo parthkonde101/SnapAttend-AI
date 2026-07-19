@@ -46,7 +46,20 @@ class AttendanceSession(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    # --- Session Creation Workflow (Academic Panels) --------------------------
+    # Nullable at the database level so historical sessions created before
+    # this migration (which have neither) are never touched or hidden — but
+    # `AttendanceSessionService.start_session` (the only code path that
+    # creates new sessions going forward) requires both, per the mandated
+    # Course -> Panel -> Session workflow. `ondelete="SET NULL"`: deleting a
+    # course/panel later must never delete attendance history, only null out
+    # the reference on old sessions.
+    course_id: Mapped[int | None] = mapped_column(ForeignKey("courses.id", ondelete="SET NULL"), nullable=True)
+    panel_id: Mapped[int | None] = mapped_column(ForeignKey("panels.id", ondelete="SET NULL"), nullable=True)
+
     teacher: Mapped["Teacher"] = relationship(back_populates="attendance_sessions")
+    course: Mapped["Course | None"] = relationship()
+    panel: Mapped["Panel | None"] = relationship()
     attendance_records: Mapped[list["Attendance"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )

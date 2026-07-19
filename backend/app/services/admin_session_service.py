@@ -52,7 +52,8 @@ class AdminSessionService:
         return [
             AdminSessionListItem(
                 session_id=session.id,
-                course=teacher.course,
+                course=session.course.course_name if session.course else teacher.course,
+                panel=session.panel.name if session.panel else None,
                 teacher_id=teacher.id,
                 teacher_name=teacher.full_name,
                 date=session.created_at,
@@ -88,7 +89,7 @@ class AdminSessionService:
 
         return AdminSessionDeleteConfirmation(
             session_id=session.id,
-            course=teacher.course,
+            course=session.course.course_name if session.course else teacher.course,
             teacher_name=teacher.full_name,
             date=session.created_at,
             present_count=present_count,

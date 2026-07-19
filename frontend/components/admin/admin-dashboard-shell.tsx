@@ -5,10 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import {
   BarChart3,
+  BookOpen,
   Camera,
   ClipboardList,
   LayoutDashboard,
   LogOut,
+  Rows3,
   Settings,
   Users,
   GraduationCap,
@@ -30,9 +32,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
   { label: "Students", href: "/admin/students", icon: GraduationCap },
   { label: "Teachers", href: "/admin/teachers", icon: Users },
+  { label: "Courses", href: "/admin/courses", icon: BookOpen },
+  { label: "Panels", href: "/admin/panels", icon: Rows3 },
   { label: "Attendance Sessions", href: "/admin/sessions", icon: ClipboardList },
+  { label: "Attendance Report", href: "/admin/reports", icon: BarChart3 },
   { label: "Settings", href: "/admin/settings", icon: Settings },
-  { label: "Analytics", href: "/admin/analytics", icon: BarChart3, comingSoon: true },
 ];
 
 interface AdminDashboardShellProps {

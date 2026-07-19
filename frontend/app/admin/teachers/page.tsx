@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Eye, KeyRound, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertCircle, BookOpen, CheckSquare, Eye, KeyRound, Loader2, Pencil, Plus, RefreshCw, Search, Square, Trash2 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -10,14 +10,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AdminDashboardShell } from "@/components/admin/admin-dashboard-shell";
 import { AdminModal } from "@/components/admin/admin-modal";
-import { createTeacher, deleteTeacher, listTeachers, resetTeacherPassword, updateTeacher } from "@/lib/admin-api";
+import {
+  assignCourseToTeacher,
+  createTeacher,
+  deleteTeacher,
+  listCourses,
+  listTeachers,
+  removeCourseFromTeacher,
+  resetTeacherPassword,
+  updateTeacher,
+} from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
-import type { TeacherAdminRead } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import type { CourseRead, TeacherAdminRead } from "@/lib/types";
 
 type ModalState =
   | { type: "create" }
   | { type: "view"; teacher: TeacherAdminRead }
   | { type: "edit"; teacher: TeacherAdminRead }
+  | { type: "courses"; teacher: TeacherAdminRead }
   | { type: "reset"; teacher: TeacherAdminRead }
   | { type: "delete"; teacher: TeacherAdminRead }
   | null;
@@ -90,7 +101,7 @@ export default function AdminTeachersPage() {
                   <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="pb-3 pr-4 font-medium">Login ID</th>
                     <th className="pb-3 pr-4 font-medium">Teacher Name</th>
-                    <th className="pb-3 pr-4 font-medium">Course</th>
+                    <th className="pb-3 pr-4 font-medium">Assigned Courses</th>
                     <th className="pb-3 pr-4 font-medium">Created</th>
                     <th className="pb-3 font-medium">Actions</th>
                   </tr>
@@ -100,12 +111,27 @@ export default function AdminTeachersPage() {
                     <tr key={teacher.id}>
                       <td className="py-3 pr-4 font-mono">{teacher.teacher_id}</td>
                       <td className="py-3 pr-4 font-medium">{teacher.full_name}</td>
-                      <td className="py-3 pr-4 text-muted-foreground">{teacher.course ?? "—"}</td>
+                      <td className="py-3 pr-4">
+                        {teacher.courses.length === 0 ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {teacher.courses.map((course) => (
+                              <span key={course.id} className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                {course.course_name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-3 pr-4 text-muted-foreground">{formatDate(teacher.created_at)}</td>
                       <td className="py-3">
                         <div className="flex flex-wrap gap-1">
                           <Button variant="ghost" size="icon" title="View" aria-label="View" onClick={() => setModal({ type: "view", teacher })}>
                             <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" title="Manage Courses" aria-label="Manage Courses" onClick={() => setModal({ type: "courses", teacher })}>
+                            <BookOpen className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="icon" title="Edit" aria-label="Edit" onClick={() => setModal({ type: "edit", teacher })}>
                             <Pencil className="h-4 w-4" />
@@ -131,6 +157,9 @@ export default function AdminTeachersPage() {
         <CreateTeacherModal onClose={() => setModal(null)} onCreated={() => { setModal(null); refetch(); }} />
       )}
       {modal?.type === "view" && <ViewTeacherModal teacher={modal.teacher} onClose={() => setModal(null)} />}
+      {modal?.type === "courses" && (
+        <ManageCoursesModal teacher={modal.teacher} onClose={() => setModal(null)} onChanged={() => refetch()} />
+      )}
       {modal?.type === "edit" && (
         <EditTeacherModal teacher={modal.teacher} onClose={() => setModal(null)} onSaved={() => { setModal(null); refetch(); }} />
       )}
@@ -220,8 +249,8 @@ function ViewTeacherModal({ teacher, onClose }: { teacher: TeacherAdminRead; onC
         <dd className="font-mono">{teacher.teacher_id}</dd>
         <dt className="text-muted-foreground">Name</dt>
         <dd>{teacher.full_name}</dd>
-        <dt className="text-muted-foreground">Course</dt>
-        <dd>{teacher.course ?? "—"}</dd>
+        <dt className="text-muted-foreground">Courses</dt>
+        <dd>{teacher.courses.length > 0 ? teacher.courses.map((c) => c.course_name).join(", ") : "—"}</dd>
         <dt className="text-muted-foreground">Created</dt>
         <dd>{formatDate(teacher.created_at)}</dd>
         <dt className="text-muted-foreground">Sessions started</dt>
@@ -230,6 +259,141 @@ function ViewTeacherModal({ teacher, onClose }: { teacher: TeacherAdminRead; onC
       <div className="flex justify-end pt-1">
         <Button variant="outline" onClick={onClose}>
           Close
+        </Button>
+      </div>
+    </AdminModal>
+  );
+}
+
+/** Teacher<->Course many-to-many assignment ("Extending the attendance
+ * system" spec, Part 1/7): a searchable checklist, same pattern as the
+ * Panel detail page's Courses tab. */
+function ManageCoursesModal({
+  teacher,
+  onClose,
+  onChanged,
+}: {
+  teacher: TeacherAdminRead;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [allCourses, setAllCourses] = useState<CourseRead[]>([]);
+  const [assignedIds, setAssignedIds] = useState<Set<number>>(() => new Set(teacher.courses.map((c) => c.id)));
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    listCourses(false)
+      .then((data) => {
+        if (!cancelled) setAllCourses(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : "Unable to load courses.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleToggle(course: CourseRead) {
+    setError(null);
+    setPendingId(course.id);
+    const isAssigned = assignedIds.has(course.id);
+    try {
+      if (isAssigned) {
+        await removeCourseFromTeacher(teacher.id, course.id);
+        setAssignedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(course.id);
+          return next;
+        });
+      } else {
+        await assignCourseToTeacher(teacher.id, course.id);
+        setAssignedIds((prev) => new Set(prev).add(course.id));
+      }
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unable to update course assignment.");
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  const query = search.trim().toLowerCase();
+  const filtered = query
+    ? allCourses.filter(
+        (c) => c.course_name.toLowerCase().includes(query) || (c.course_code ?? "").toLowerCase().includes(query)
+      )
+    : allCourses;
+
+  return (
+    <AdminModal title={`Assigned Courses — ${teacher.full_name}`} onClose={onClose}>
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search courses..."
+          className="pl-8"
+          aria-label="Search courses"
+        />
+      </div>
+      {isLoading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : allCourses.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">No courses in the catalog yet.</p>
+      ) : filtered.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">No courses match &quot;{search}&quot;.</p>
+      ) : (
+        <ul className="max-h-80 space-y-1 overflow-y-auto">
+          {filtered.map((course) => {
+            const isChecked = assignedIds.has(course.id);
+            return (
+              <li key={course.id}>
+                <button
+                  type="button"
+                  onClick={() => handleToggle(course)}
+                  disabled={pendingId === course.id}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                    isChecked ? "border-primary bg-primary/5" : "border-border hover:bg-muted"
+                  )}
+                >
+                  {pendingId === course.id ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                  ) : isChecked ? (
+                    <CheckSquare className="h-4 w-4 shrink-0 text-primary" />
+                  ) : (
+                    <Square className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-medium">{course.course_name}</span>
+                    {course.course_code && (
+                      <span className="ml-1.5 font-mono text-xs text-muted-foreground">{course.course_code}</span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="flex justify-end pt-1">
+        <Button variant="outline" onClick={onClose}>
+          Done
         </Button>
       </div>
     </AdminModal>

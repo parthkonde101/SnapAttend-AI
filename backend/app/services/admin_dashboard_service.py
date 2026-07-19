@@ -82,12 +82,13 @@ class AdminDashboardService:
             RecentActivityItem(
                 student_name=student.full_name,
                 student_prn=student.prn,
-                course=teacher.course,
+                course=session.course.course_name if session.course else teacher.course,
+                panel=session.panel.name if session.panel else None,
                 teacher_name=teacher.full_name,
                 status=attendance.status,  # type: ignore[arg-type]
                 marked_at=attendance.marked_at,
             )
-            for attendance, student, _session, teacher in recent_rows
+            for attendance, student, session, teacher in recent_rows
         ]
 
         return DashboardStats(

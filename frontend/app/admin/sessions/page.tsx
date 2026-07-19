@@ -98,6 +98,7 @@ export default function AdminSessionsPage() {
                 <thead>
                   <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="pb-3 pr-4 font-medium">Course</th>
+                    <th className="pb-3 pr-4 font-medium">Panel</th>
                     <th className="pb-3 pr-4 font-medium">Teacher</th>
                     <th className="pb-3 pr-4 font-medium">Date</th>
                     <th className="pb-3 pr-4 font-medium">Duration</th>
@@ -110,6 +111,7 @@ export default function AdminSessionsPage() {
                   {sessions.map((session) => (
                     <tr key={session.session_id}>
                       <td className="py-3 pr-4">{session.course ?? "—"}</td>
+                      <td className="py-3 pr-4 text-muted-foreground">{session.panel ?? "—"}</td>
                       <td className="py-3 pr-4 text-muted-foreground">{session.teacher_name}</td>
                       <td className="py-3 pr-4 text-muted-foreground">
                         {formatDate(session.date)} · {formatTime(session.date)}

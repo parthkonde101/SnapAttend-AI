@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.sorting import roll_number_sort_key
 from app.models.attendance import Attendance
 from app.models.attendance_session import AttendanceSession
 from app.models.student import Student
@@ -75,36 +76,32 @@ class AttendanceReviewService:
         full evidence trail behind their record; absent ones (including
         students who were never verified at all) carry defaults.
 
-        Ordering (Milestone 6B — this is also the *live* view while the
-        session is active, polled repeatedly as attendance arrives): a
-        student who has an attendance row at all — present or overridden
-        to absent — is sorted by that row's `marked_at`, ascending. A row's
-        `marked_at` never changes after it's created (a status override
-        only touches `status`/`overridden_*`, see `set_status` below), so
-        this ordering is permanently stable for every row once it exists —
-        new arrivals only ever get appended after the current last arrival,
-        never inserted earlier or reshuffled. Students with no row at all
-        sit in a second, separately-stable block after every arrival,
-        ordered by name — they only ever leave that block by gaining a row
-        (moving to the arrival-ordered block above), never by reordering
-        within it.
+        Ordering (spec Part 11 — Student Ordering): by Roll Number
+        ascending, numeric-aware, matching the official classroom
+        attendance register — this applies regardless of present/absent
+        status or arrival order. This supersedes this page's earlier
+        "arrival order, then name" behavior (Milestone 6B) now that the
+        spec explicitly requires roll-number ordering for "session
+        details" and "live attendance monitoring" — a teacher scanning
+        this list during a live session should see the same order as a
+        physical roll-call sheet, not whoever happened to check in first.
         """
-        students = list(self.db.scalars(select(Student).order_by(Student.full_name.asc())))
+        # Roster scoped to the session's panel, per the spec's "Attendance
+        # valid only for students belonging to that panel" — a session with
+        # no panel (predates this migration) falls back to every student,
+        # preserving historical review pages exactly as they were.
+        roster_stmt = select(Student)
+        if session.panel_id is not None:
+            roster_stmt = roster_stmt.where(Student.panel_id == session.panel_id)
+        students = list(self.db.scalars(roster_stmt))
+        students.sort(key=lambda s: roll_number_sort_key(s.roll_number))
 
         attendance_rows = list(self.db.scalars(select(Attendance).where(Attendance.session_id == session.id)))
         by_student_id = {row.student_id: row for row in attendance_rows}
 
-        def sort_key(student: Student) -> tuple[int, object]:
-            row = by_student_id.get(student.id)
-            if row is not None:
-                return (0, row.marked_at)
-            return (1, student.full_name)
-
-        ordered_students = sorted(students, key=sort_key)
-
         items: list[StudentAttendanceReviewItem] = []
         present_count = 0
-        for student in ordered_students:
+        for student in students:
             row = by_student_id.get(student.id)
             if row is None:
                 items.append(
@@ -112,6 +109,7 @@ class AttendanceReviewService:
                         student_id=student.id,
                         prn=student.prn,
                         full_name=student.full_name,
+                        roll_number=student.roll_number,
                         status="absent",
                     )
                 )
@@ -125,6 +123,7 @@ class AttendanceReviewService:
                     student_id=student.id,
                     prn=student.prn,
                     full_name=student.full_name,
+                    roll_number=student.roll_number,
                     status=row.status,  # type: ignore[arg-type]
                     verification_source=row.verification_source,  # type: ignore[arg-type]
                     marked_at=row.marked_at,
@@ -149,6 +148,8 @@ class AttendanceReviewService:
         return SessionReviewResponse(
             session_id=session.id,
             marker=session.marker,
+            course=session.course.course_name if session.course else None,
+            panel=session.panel.name if session.panel else None,
             is_active=session.is_active,
             remaining_seconds=remaining_seconds,
             present_count=present_count,
@@ -217,6 +218,7 @@ class AttendanceReviewService:
             student_id=student.id,
             prn=student.prn,
             full_name=student.full_name,
+            roll_number=student.roll_number,
             status=row.status,  # type: ignore[arg-type]
             verification_source=row.verification_source,  # type: ignore[arg-type]
             marked_at=row.marked_at,
@@ -290,6 +292,7 @@ class AttendanceReviewService:
             student_id=student.id,
             prn=student.prn,
             full_name=student.full_name,
+            roll_number=student.roll_number,
             status=row.status,  # type: ignore[arg-type]
             verification_source=row.verification_source,  # type: ignore[arg-type]
             marked_at=row.marked_at,
